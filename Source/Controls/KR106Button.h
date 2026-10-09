@@ -2,253 +2,173 @@
 
 #include <juce_gui_basics/juce_gui_basics.h>
 #include <juce_audio_processors/juce_audio_processors.h>
-
-#include "KR106Tooltip.h"
-#include "PluginProcessor.h"
-
-// Draw a 3D bevel button (pixel-perfect, no AA).
-// Types: 0=Cream, 1=Yellow, 2=Orange.
-// When pressed: highlight and shadow swap.
-static inline void DrawKR106Button(juce::Graphics& g, float l, float t, float r, float b, int type, bool pressed)
-{
-    struct ColorTriplet { juce::Colour highlight, face, shadow; };
-
-    static const ColorTriplet colors[3] = {
-        { juce::Colour(253, 247, 203), juce::Colour(220, 220, 178), juce::Colour(178, 179, 144) }, // Cream
-        { juce::Colour(253, 247, 203), juce::Colour(228, 229, 88),  juce::Colour(180, 179, 69)  }, // Yellow
-        { juce::Colour(253, 247, 203), juce::Colour(240, 173, 56),  juce::Colour(180, 126, 41)  }, // Orange
-    };
-
-    const auto& c = colors[type];
-    const auto hi = pressed ? c.shadow : c.highlight;
-    const auto lo = pressed ? c.highlight : c.shadow;
-    const auto black = juce::Colour(0, 0, 0);
-
-    // Face fill
-    g.setColour(c.face);
-    g.fillRect(l + 2, t + 2, r - l - 4, b - t - 4);
-
-    // 3D bevel — top/left = highlight, bottom/right = shadow
-    g.setColour(hi);
-    g.fillRect(l + 1, t + 1, r - l - 2, 1.f);   // top highlight
-    g.fillRect(l + 1, t + 1, 1.f, b - t - 2);    // left highlight
-    g.setColour(lo);
-    g.fillRect(l + 2, b - 2, r - l - 3, 1.f);    // bottom shadow
-    g.fillRect(r - 2, t + 2, 1.f, b - t - 3);    // right shadow
-
-    // 1px black border
-    g.setColour(black);
-    g.fillRect(l, t, r - l, 1.f);                 // top
-    g.fillRect(l, b - 1, r - l, 1.f);             // bottom
-    g.fillRect(l, t, 1.f, b - t);                 // left
-    g.fillRect(r - 1, t, 1.f, b - t);             // right
-}
+#include "../PluginProcessor.h"
+#include <cmath>
 
 // ============================================================================
-// KR106ButtonLED — Button with LED indicator above it.
-// Total size: 17x28 (LED 9x9 at top, button 17x19 below).
-// LED image is @2x, 18x36, 2 frames stacked vertically (frame 0=off, frame 1=on).
-// LED is on when param value > 0.5 AND power param value > 0.5.
+// KR106Bender -- 2D pitch bend lever (Juno-106 style)
+// Horizontal: pitch bend (spring-back to center)
+// Vertical push-up: LFO trigger on/off (handle shifts up, spring-back)
 // ============================================================================
-class KR106ButtonLED : public juce::Component
+class KR106Bender : public juce::Component
 {
 public:
-    KR106ButtonLED(juce::RangedAudioParameter* param, int buttonType,
-                   const juce::Image& ledImage, juce::RangedAudioParameter* powerParam,
-                   KR106Tooltip* tip = nullptr)
-        : mParam(param)
-        , mButtonType(buttonType)
-        , mLedImage(ledImage)
-        , mPowerParam(powerParam)
-        , mTooltip(tip)
-    {
-    }
-
-    void setMidiLearn(KR106AudioProcessor* proc, int paramIdx)
-    { mProcessor = proc; mParamIdx = paramIdx; }
+    KR106Bender(juce::RangedAudioParameter* param, const juce::Image& gradientImage,
+                KR106AudioProcessor* processor)
+        : mParam(param), mGradient(gradientImage), mProcessor(processor)
+    {}
 
     void paint(juce::Graphics& g) override
     {
-        // LED at (4, 0), 9x9
-        // ledImage is 18x36 @2x, 2 frames stacked vertically
-        bool powered = mPowerParam && mPowerParam->getValue() > 0.5f;
-        bool on = powered && mParam && mParam->getValue() > 0.5f;
+        const auto black = juce::Colour(0, 0, 0);
+        const auto gray  = juce::Colour(128, 128, 128);
+        const auto white = juce::Colour(255, 255, 255);
 
-        int frameW2x = mLedImage.getWidth();   // 18
-        int frameH2x = mLedImage.getHeight() / 2; // 18 per frame
-        int frameY2x = on ? frameH2x : 0;     // frame 1 = on, frame 0 = off
+        float h = static_cast<float>(getHeight());
+        float trackY = h - 8.f; // gradient track always at bottom
+        bool triggered = mTriggered || (mProcessor && mProcessor->mLfoTriggered.load(std::memory_order_relaxed));
+        float handleOff = triggered ? -4.f : 0.f; // handle shifts up 4px
 
-        float ledW = frameW2x / 2.f; // 9
-        float ledH = frameH2x / 2.f; // 9
+        // Black background (fixed position)
+        g.setColour(black);
+        g.fillRect(4.f, trackY, 52.f, 8.f);
 
-        g.drawImage(mLedImage,
-                    4.f, 0.f, ledW, ledH,          // dest: 1x coords
-                    0, frameY2x, frameW2x, frameH2x); // src: 2x coords
+        // Gradient image (fixed position)
+        g.drawImage(mGradient, 5.f, trackY + 1.f, 50.f, 6.f,
+                    0, 0, mGradient.getWidth(), mGradient.getHeight());
 
-        // Button at (0, 9), 17x19
-        DrawKR106Button(g, 0.f, 9.f, 17.f, 28.f, mButtonType, mPressed);
+        // Pointer -- param value normalized 0-1, map to -1..+1
+        float value = mParam ? mParam->getValue() * 2.f - 1.f : 0.f;
+        float midpoint = 30.f;
+        float angle = juce::MathConstants<float>::pi * (2.f - value) / 4.f;
 
-        // Green border when in MIDI learn mode
-        if (mProcessor && mParamIdx >= 0
-            && mProcessor->mMidiLearnParam.load(std::memory_order_relaxed) == mParamIdx)
+        float basex1  = cosf(angle + juce::MathConstants<float>::pi / 20.f) * 24.f + midpoint;
+        float basex2  = cosf(angle - juce::MathConstants<float>::pi / 20.f) * 24.f + midpoint;
+        float pointx1 = cosf(angle + juce::MathConstants<float>::pi / 50.f) * 36.f + midpoint;
+        float pointx2 = cosf(angle - juce::MathConstants<float>::pi / 50.f) * 36.f + midpoint;
+
+        float baseEndY = trackY + 1.f;               // base stays on track
+        float pointEndY = trackY + 1.f + handleOff;  // point end tilts up
+        float pointerCx = (pointx1 + pointx2 + 1.f) * 0.5f;
+
+        // Gray outer shape (tilted quad)
+        g.setColour(gray);
         {
-            g.setColour(juce::Colour(0, 255, 0));
-            g.drawRect(getLocalBounds(), 1);
+            juce::Path p;
+            if (basex1 < pointx1) {
+                // base left, point right
+                p.startNewSubPath(basex1,        baseEndY);
+                p.lineTo(pointx2,         pointEndY);
+                p.lineTo(pointx2,         pointEndY + 6.f);
+                p.lineTo(basex1,                 baseEndY + 6.f);
+            } else {
+                // point left, base right
+                p.startNewSubPath(pointx1,       pointEndY);
+                p.lineTo(basex2,           baseEndY);
+                p.lineTo(basex2,           baseEndY + 6.f);
+                p.lineTo(pointx1,                pointEndY + 6.f);
+            }
+            p.closeSubPath();
+            g.fillPath(p);
         }
-    }
 
-    void mouseEnter(const juce::MouseEvent&) override
-    {
-        if (mTooltip)
+        // triggered stem
+        if (triggered)
         {
-            updateCCLine();
-            mTooltip->show(mParam, this);
+            float tipY = pointEndY + 6.f;      
+            float baseY = tipY + 3.5f;           
+            g.setColour(juce::Colour(gray));
+            juce::Path tri;
+            tri.startNewSubPath(pointerCx -3.f, tipY);
+            tri.lineTo(basex1, baseY);
+            tri.lineTo(basex2, baseY);
+            tri.lineTo(pointerCx + 3.f, tipY);
+            tri.closeSubPath();
+            g.fillPath(tri);
         }
-    }
 
-    void mouseExit(const juce::MouseEvent&) override
-    {
-        if (mTooltip) mTooltip->hide();
-    }
+        // White inner pointer (tilted quad)
+        g.setColour(white);
+        {
+            juce::Path p;
+            p.startNewSubPath(pointx1,       pointEndY);
+            p.lineTo(pointx2 + 1.f,         pointEndY);
+            p.lineTo(pointx2 + 1.f,         pointEndY + 6.f);
+            p.lineTo(pointx1,               pointEndY + 6.f);
+            p.closeSubPath();
+            g.fillPath(p);
+        }
+
+        // Gray corner pixels
+        g.setColour(gray);
+        g.fillRect(pointx1, pointEndY, 1.f, 1.f);
+        g.fillRect(pointx1, pointEndY + 5.f, 1.f, 1.f);
+        g.fillRect(pointx2, pointEndY, 1.f, 1.f);
+        g.fillRect(pointx2, pointEndY + 5.f, 1.f, 1.f);
+        }
 
     void mouseDown(const juce::MouseEvent& e) override
     {
-        if (e.mods.isPopupMenu() && mProcessor && mParamIdx >= 0)
-        {
-            mProcessor->startMidiLearn(mParamIdx);
-            updateCCLine();
-            if (mTooltip) mTooltip->show(mParam, this);
-            repaint();
-            return;
-        }
-        if (e.mods.isPopupMenu()) return;
-        if (mProcessor && mProcessor->mMidiLearnParam.load(std::memory_order_relaxed) >= 0)
-        {
-            mProcessor->cancelMidiLearn();
-            if (mTooltip) mTooltip->hide();
-            repaint();
-        }
         if (!mParam) return;
-        mPressed = true;
-        float newVal = mParam->getValue() > 0.5f ? 0.f : 1.f;
+
+        // Map click x to bender value
+        float lx = static_cast<float>(e.getPosition().x);
+        float midpoint = 30.f;
+        float value = (lx - midpoint) / midpoint;
+        value = juce::jlimit(-1.f, 1.f, value);
+
         mParam->beginChangeGesture();
-        mParam->setValueNotifyingHost(newVal);
+        mParam->setValueNotifyingHost((value + 1.f) / 2.f);
+        mDragStartVal = (value + 1.f) / 2.f;
+        mDragStartY = e.getPosition().y;
+
+        repaint();
+    }
+
+    void mouseDrag(const juce::MouseEvent& e) override
+    {
+        if (!mParam) return;
+
+        // Horizontal: pitch bend
+        float scale = e.mods.isShiftDown() ? 512.f : 128.f;
+        float dX = static_cast<float>(e.getDistanceFromDragStartX());
+        float value = mDragStartVal * 2.f - 1.f;
+        value += dX / scale;
+        value = juce::jlimit(-1.f, 1.f, value);
+        mParam->setValueNotifyingHost((value + 1.f) / 2.f);
+
+        // Vertical: trigger LFO when dragged up past threshold
+        bool wasTriggered = mTriggered;
+        int dY = e.getPosition().y - mDragStartY;
+        mTriggered = (dY < -3); // 3px upward threshold
+
+        if (mTriggered != wasTriggered && mProcessor)
+            mProcessor->sendMidiFromUI(0xB0, 1, mTriggered ? 127 : 0);
+
+        repaint();
+    }
+
+    void mouseUp(const juce::MouseEvent&) override
+    {
+        if (!mParam) return;
+
+        // Spring back: pitch to center, trigger off
+        mParam->setValueNotifyingHost(0.5f);
         mParam->endChangeGesture();
-        repaint();
-    }
 
-    void mouseUp(const juce::MouseEvent& /*e*/) override
-    {
-        mPressed = false;
+        if (mTriggered && mProcessor)
+            mProcessor->sendMidiFromUI(0xB0, 1, 0);
+        mTriggered = false;
+
         repaint();
     }
 
 private:
-    void updateCCLine()
-    {
-        if (!mTooltip) return;
-        if (!mProcessor || mParamIdx < 0) { mTooltip->setLine2({}); return; }
-        if (mProcessor->mMidiLearnParam.load(std::memory_order_relaxed) == mParamIdx)
-        {
-            int cc = mProcessor->getCCForParam(mParamIdx);
-            mTooltip->setLine2(cc >= 0 ? "MIDI LEARN (CC " + juce::String(cc) + ")" : "MIDI LEARN");
-            return;
-        }
-        int cc = mProcessor->getCCForParam(mParamIdx);
-        mTooltip->setLine2(cc >= 0 ? "CC " + juce::String(cc) : "CC ??");
-    }
-
     juce::RangedAudioParameter* mParam = nullptr;
-    juce::RangedAudioParameter* mPowerParam = nullptr;
+    juce::Image mGradient;
     KR106AudioProcessor* mProcessor = nullptr;
-    int mParamIdx = -1;
-    KR106Tooltip* mTooltip = nullptr;
-    int mButtonType = 0;
-    juce::Image mLedImage;
-    bool mPressed = false;
+    float mDragStartVal = 0.5f;
+    int mDragStartY = 0;
+    bool mTriggered = false;
 };
 
-// ============================================================================
-// KR106ClipLED — Standalone LED that lights when a level exceeds a threshold.
-// Driven from timerCallback by reading an atomic peak value.
-// Size: 9x9 @1x (uses same 18x36 @2x two-frame strip as ButtonLED).
-// ============================================================================
-class KR106ClipLED : public juce::Component
-{
-public:
-    KR106ClipLED(const juce::Image& ledImage, float threshold)
-        : mLedImage(ledImage), mThreshold(threshold) {}
-
-    void paint(juce::Graphics& g) override
-    {
-        int frameW2x = mLedImage.getWidth();
-        int frameH2x = mLedImage.getHeight() / 2;
-        int frameY2x = mLit ? frameH2x : 0;
-        g.drawImage(mLedImage,
-                    0.f, 0.f, frameW2x / 2.f, frameH2x / 2.f,
-                    0, frameY2x, frameW2x, frameH2x);
-    }
-
-    // Call from timerCallback with the current peak value
-    void update(float peak)
-    {
-        bool lit = peak >= mThreshold;
-        if (lit != mLit) { mLit = lit; repaint(); }
-    }
-
-private:
-    juce::Image mLedImage;
-    float mThreshold;
-    bool mLit = false;
-};
-
-// ============================================================================
-// KR106ChorusOff — Cream button that turns off both Chorus I and Chorus II.
-// Size: 17x19.
-// ============================================================================
-class KR106ChorusOff : public juce::Component
-{
-public:
-    KR106ChorusOff(juce::RangedAudioParameter* chorusI, juce::RangedAudioParameter* chorusII)
-        : mChorusI(chorusI)
-        , mChorusII(chorusII)
-    {
-    }
-
-    void paint(juce::Graphics& g) override
-    {
-        DrawKR106Button(g, 0.f, 0.f, 17.f, 19.f, 0 /*Cream*/, mPressed);
-    }
-
-    void mouseDown(const juce::MouseEvent& /*e*/) override
-    {
-        mPressed = true;
-
-        if (mChorusI)
-        {
-            mChorusI->beginChangeGesture();
-            mChorusI->setValueNotifyingHost(0.f);
-            mChorusI->endChangeGesture();
-        }
-
-        if (mChorusII)
-        {
-            mChorusII->beginChangeGesture();
-            mChorusII->setValueNotifyingHost(0.f);
-            mChorusII->endChangeGesture();
-        }
-
-        repaint();
-    }
-
-    void mouseUp(const juce::MouseEvent& /*e*/) override
-    {
-        mPressed = false;
-        repaint();
-    }
-
-private:
-    juce::RangedAudioParameter* mChorusI = nullptr;
-    juce::RangedAudioParameter* mChorusII = nullptr;
-    bool mPressed = false;
-};

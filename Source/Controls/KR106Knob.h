@@ -4,346 +4,53 @@
 #include <juce_audio_processors/juce_audio_processors.h>
 
 #include "KR106Tooltip.h"
-#include "KR106Touch.h"
-#include "PluginProcessor.h"
+#include "../PluginProcessor.h"
+
+// Draw a 3D bevel button (pixel-perfect, no AA).
+// Types: 0=Cream, 1=Yellow, 2=Orange.
+// When pressed: highlight and shadow swap.
+static inline void DrawKR106Button(juce::Graphics& g, float l, float t, float r, float b, int type, bool pressed)
+{
+    struct ColorTriplet { juce::Colour highlight, face, shadow; };
+
+    static const ColorTriplet colors[3] = {
+        { juce::Colour(253, 247, 203), juce::Colour(220, 220, 178), juce::Colour(178, 179, 144) }, // Cream
+        { juce::Colour(253, 247, 203), juce::Colour(228, 229, 88),  juce::Colour(180, 179, 69)  }, // Yellow
+        { juce::Colour(253, 247, 203), juce::Colour(240, 173, 56),  juce::Colour(180, 126, 41)  }, // Orange
+    };
+
+    const auto& c = colors[type];
+    const auto hi = pressed ? c.shadow : c.highlight;
+    const auto lo = pressed ? c.highlight : c.shadow;
+    const auto black = juce::Colour(0, 0, 0);
+
+    // Face fill
+    g.setColour(c.face);
+    g.fillRect(l + 2, t + 2, r - l - 4, b - t - 4);
+
+    // 3D bevel — top/left = highlight, bottom/right = shadow
+    g.setColour(hi);
+    g.fillRect(l + 1, t + 1, r - l - 2, 1.f);   // top highlight
+    g.fillRect(l + 1, t + 1, 1.f, b - t - 2);    // left highlight
+    g.setColour(lo);
+    g.fillRect(l + 2, b - 2, r - l - 3, 1.f);    // bottom shadow
+    g.fillRect(r - 2, t + 2, 1.f, b - t - 3);    // right shadow
+
+    // 1px black border
+    g.setColour(black);
+    g.fillRect(l, t, r - l, 1.f);                 // top
+    g.fillRect(l, b - 1, r - l, 1.f);             // bottom
+    g.fillRect(l, t, 1.f, b - t);                 // left
+    g.fillRect(r - 1, t, 1.f, b - t);             // right
+}
 
 // ============================================================================
-// KR106Knob — Bitmap knob with manhattan distance drag.
-// Sprite sheet is @2x, N frames in a horizontal strip.
-// Frame count is auto-detected: numFrames = imageWidth / imageHeight.
-// Both vertical and horizontal mouse movement contribute to the value.
-// Up and right increase; down and left decrease.
+// KR106ButtonLED — Button with LED indicator above it.
+// Total size: 17x28 (LED 9x9 at top, button 17x19 below).
+// LED image is @2x, 18x36, 2 frames stacked vertically (frame 0=off, frame 1=on).
+// LED is on when param value > 0.5 AND power param value > 0.5.
 // ============================================================================
-class KR106Knob : public juce::Component
+class KR106ButtonLED : public juce::Component
 {
 public:
-    KR106Knob(juce::RangedAudioParameter* param, const juce::Image& spriteSheet,
-              KR106Tooltip* tip = nullptr, int numFrames = 0)
-        : mParam(param)
-        , mSpriteSheet(spriteSheet)
-        , mTooltip(tip)
-        , mNumFrames(numFrames > 0 ? numFrames
-                     : (spriteSheet.getHeight() > 0 ? spriteSheet.getWidth() / spriteSheet.getHeight() : 32))
-    {
-    }
-
-    void setBackgroundImage(const juce::Image& img) { mBgImage = img; }
-
-    void setMidiLearn(KR106AudioProcessor* proc, int paramIdx)
-    { mProcessor = proc; mParamIdx = paramIdx; }
-
-    void setSnapCenter(bool snap) { mSnapCenter = snap; }
-    void setGearing(float g) { mGearing = g; }
-
-    // Optional callback fired on mouse-up at the end of a drag (after the
-    // gesture is finalized). Use for side-effects that should happen once
-    // per gesture rather than on every drag-pixel value change.
-    std::function<void()> onDragEnd;
-
-    void paint(juce::Graphics& g) override
-    {
-        float val = mParam ? mParam->getValue() : 0.f;
-        int maxIdx = mNumFrames - 1;
-        int idx = (int)std::round(val * (float)maxIdx);
-        idx = juce::jlimit(0, maxIdx, idx);
-
-        int frameW2x = mSpriteSheet.getWidth() / mNumFrames;
-        int h2x = mSpriteSheet.getHeight();
-        float frameW = frameW2x / 2.f;
-        float frameH = h2x / 2.f;
-
-        float w = (float)getWidth();
-        float h = (float)getHeight();
-
-        if (mBgImage.isValid())
-        {
-            g.drawImage(mBgImage,
-                        0.f, 0.f, w, h,
-                        0, 0, mBgImage.getWidth(), mBgImage.getHeight());
-        }
-
-        // Centre sprite within bounds
-        float ox = (w - frameW) * 0.5f;
-        float oy = (h - frameH) * 0.5f;
-        g.drawImage(mSpriteSheet,
-                    ox, oy, frameW, frameH,                        // dest: 1x
-                    idx * frameW2x, 0, frameW2x, h2x);            // src: 2x
-
-        // Green border when in MIDI learn mode
-        if (mProcessor && mParamIdx >= 0
-            && mProcessor->mMidiLearnParam.load(std::memory_order_relaxed) == mParamIdx)
-        {
-            g.setColour(juce::Colour(0, 255, 0));
-            g.drawRect(getLocalBounds(), 1);
-        }
-    }
-
-    void mouseEnter(const juce::MouseEvent&) override
-    {
-        if (mTooltip && !mDragging && !mEditor)
-        {
-            updateCCLine();
-            mTooltip->show(mParam, this);
-        }
-    }
-
-    void mouseExit(const juce::MouseEvent&) override
-    {
-        if (mTooltip && !mDragging) mTooltip->hide();
-    }
-
-    void mouseMove(const juce::MouseEvent& e) override
-    {
-        applyCursorWorkaround(e);
-    }
-
-    // Touch UI scales knobs up, so restrict the touch area to the visible knob
-    // (otherwise neighbouring knobs' transparent frames overlap).
-    bool hitTest(int x, int y) override
-    {
-        if (!kr106touch::kEnabled) return juce::Component::hitTest(x, y);
-        return juce::Point<float>((float) x, (float) y)
-                   .getDistanceFrom(getLocalBounds().getCentre().toFloat()) <= 8.5f;
-    }
-
-    void mouseDown(const juce::MouseEvent& e) override
-    {
-        if (e.mods.isPopupMenu() && mProcessor && mParamIdx >= 0)
-        {
-            mProcessor->startMidiLearn(mParamIdx);
-            updateCCLine();
-            if (mTooltip) mTooltip->show(mParam, this);
-            repaint();
-            return;
-        }
-        if (e.mods.isPopupMenu()) return;
-        // Left click cancels MIDI learn if active, then falls through to start drag
-        if (mProcessor && mProcessor->mMidiLearnParam.load(std::memory_order_relaxed) >= 0)
-        {
-            mProcessor->cancelMidiLearn();
-            if (mTooltip) mTooltip->hide();
-            repaint();
-        }
-        mDragging = true;
-        mAccumVal = mParam ? mParam->getValue() : 0.f;
-        mLastRawDelta = 0.f;
-        if (mParam) mParam->beginChangeGesture();
-        if (mTooltip) mTooltip->show(mParam, this);
-        setMouseCursor(juce::MouseCursor::NoCursor);
-        e.source.enableUnboundedMouseMovement(true);
-        if (isAppleHost()) mCursorDirty = true;
-    }
-
-    void mouseDrag(const juce::MouseEvent& e) override
-    {
-        applyCursorWorkaround(e);
-        if (!mParam) return;
-
-        float offsetY = (float)e.getOffsetFromDragStart().y;
-        float offsetX = (float)e.getOffsetFromDragStart().x;
-
-        // Manhattan drag: -(dY - dX) so up+right = increase
-        float rawDelta = -(offsetY - offsetX);
-        float increment = rawDelta - mLastRawDelta;
-        mLastRawDelta = rawDelta;
-
-        // Cumulative gearing: shift only affects new movement
-        // Scale by display DPI so non-retina screens get the same physical throw
-        float dpiScale = std::max(1.f, static_cast<float>(getTopLevelComponent()->getDesktopScaleFactor()));
-        // Touch: shorter throw, scaled by this knob's own gearing ratio
-        float gearing = kr106touch::kEnabled ? kr106touch::kKnobThrow * (mGearing / 127.f) : mGearing;
-        if (e.mods.isCommandDown()) gearing *= 100.f;
-        else if (e.mods.isShiftDown()) gearing *= 10.f;
-        if (!kr106touch::kEnabled) gearing /= dpiScale;
-        mAccumVal = juce::jlimit(0.f, 1.f, mAccumVal + increment / gearing);
-        float newVal = mAccumVal;
-
-        // Three-zone center snap: 0-99px = -100..-1 cents,
-        // 100-105px = 0 cents (detent), 106-205px = +1..+100 cents.
-        // Maps the 0..1 accumulator through a piecewise function that
-        // creates a dead zone at center without skipping any values.
-        if (mSnapCenter)
-        {
-            // Accumulator pixel position (0..205 across 0..1 range)
-            float px = mAccumVal * gearing;
-            float half = gearing * 0.5f;       // 102.5
-            float snapHalf = 3.f;              // 3px each side of center
-            float negEnd = half - snapHalf;    // 99.5
-            float posStart = half + snapHalf;  // 105.5
-
-            if (px <= negEnd)
-            {
-                // -100..-1 cents: map 0..99.5 to 0..0.495
-                newVal = (px / negEnd) * 0.495f;
-            }
-            else if (px >= posStart)
-            {
-                // +1..+100 cents: map 105.5..205 to 0.505..1.0
-                newVal = 0.505f + ((px - posStart) / (gearing - posStart)) * 0.495f;
-            }
-            else
-            {
-                newVal = 0.5f; // snap to 0 cents
-                if (!mInSnapZone)
-                {
-                    mAccumVal = 0.5f; // reset once on entry
-                    mInSnapZone = true;
-                }
-            }
-            if (px <= negEnd || px >= posStart)
-                mInSnapZone = false;
-        }
-
-        mParam->setValueNotifyingHost(newVal);
-        if (mTooltip) mTooltip->update();
-        repaint();
-    }
-
-    void mouseDoubleClick(const juce::MouseEvent& /*e*/) override
-    {
-        if (!mParam) return;
-        if (mEditor) dismissEdit();
-        if (mTooltip) mTooltip->hide();
-
-        auto* parent = mTooltip ? mTooltip->getParentComponent() : getTopLevelComponent();
-        if (!parent) return;
-
-        mEditor = std::make_unique<juce::TextEditor>();
-        mEditor->setLookAndFeel(&getEditBoxLnF());
-        mEditor->setFont(juce::FontOptions(11.f));
-        mEditor->setColour(juce::TextEditor::backgroundColourId, juce::Colour(0, 0, 0));
-        mEditor->setColour(juce::TextEditor::textColourId, juce::Colour(255, 255, 255));
-        mEditor->setColour(juce::TextEditor::outlineColourId, juce::Colour(128, 128, 128));
-        mEditor->setColour(juce::TextEditor::focusedOutlineColourId, juce::Colour(128, 128, 128));
-        mEditor->setColour(juce::TextEditor::highlightColourId, juce::Colour(80, 80, 80));
-        mEditor->setJustification(juce::Justification::centred);
-
-        juce::String displayText = mParam->getCurrentValueAsText();
-        mEditor->setText(displayText, false);
-
-        auto srcBounds = parent->getLocalArea(getParentComponent(), getBounds());
-        juce::Font font{juce::FontOptions(11.f)};
-        juce::GlyphArrangement glyphs;
-        glyphs.addLineOfText(font, displayText, 0.f, 0.f);
-        int tw = std::max(50, juce::roundToInt(glyphs.getBoundingBox(0, -1, false).getWidth()) + 16);
-        int th = 16;
-        int tx = srcBounds.getCentreX() - tw / 2;
-        int ty = srcBounds.getBottom() + 2;
-        auto pb = parent->getLocalBounds();
-        tx = juce::jlimit(0, pb.getWidth() - tw, tx);
-        ty = juce::jmin(pb.getHeight() - th, ty);
-        mEditor->setBounds(tx, ty, tw, th);
-
-        parent->addAndMakeVisible(mEditor.get());
-        mEditor->grabKeyboardFocus();
-
-        int numEnd = findNumericEnd(displayText);
-        mEditor->setHighlightedRegion(juce::Range<int>(0, numEnd));
-
-        mEditor->onReturnKey = [this]() { commitEdit(); };
-        mEditor->onEscapeKey = [this]() { dismissEdit(); };
-        mEditor->onFocusLost = [this]() { dismissEdit(); };
-    }
-
-    void mouseUp(const juce::MouseEvent& e) override
-    {
-        if (!mDragging) return;
-        mDragging = false;
-        if (mParam) mParam->endChangeGesture();
-        if (mTooltip) mTooltip->hide();
-        setMouseCursor(juce::MouseCursor::NormalCursor);
-        e.source.enableUnboundedMouseMovement(false);
-
-        // Warp cursor to centre of knob so it appears on the control after release
-        auto screenPos = localPointToGlobal(juce::Point<int>(getWidth() / 2, getHeight() / 2));
-        juce::Desktop::getInstance().getMainMouseSource().setScreenPosition(screenPos.toFloat());
-        if (isAppleHost()) mCursorDirty = true;
-
-        if (onDragEnd) onDragEnd();
-    }
-
-    void updateCCLine()
-    {
-        if (!mTooltip) return;
-        if (!mProcessor || mParamIdx < 0) { mTooltip->setLine2({}); return; }
-        if (mProcessor->mMidiLearnParam.load(std::memory_order_relaxed) == mParamIdx)
-        {
-            int cc = mProcessor->getCCForParam(mParamIdx);
-            mTooltip->setLine2(cc >= 0 ? "MIDI LEARN (CC " + juce::String(cc) + ")" : "MIDI LEARN");
-            return;
-        }
-        int cc = mProcessor->getCCForParam(mParamIdx);
-        mTooltip->setLine2(cc >= 0 ? "CC " + juce::String(cc) : "CC ??");
-    }
-
-private:
-    void commitEdit()
-    {
-        if (!mEditor || !mParam) return;
-        juce::String raw = mEditor->getText().trim();
-        if (raw.isEmpty()) { dismissEdit(); return; }
-        float normalized = juce::jlimit(0.f, 1.f, mParam->getValueForText(raw));
-        mParam->beginChangeGesture();
-        mParam->setValueNotifyingHost(normalized);
-        mParam->endChangeGesture();
-        repaint();
-        dismissEdit();
-    }
-
-    void dismissEdit()
-    {
-        if (!mEditor) return;
-        auto editor = std::move(mEditor);
-        editor->setLookAndFeel(nullptr);
-        editor->onFocusLost = nullptr;
-        if (auto* parent = editor->getParentComponent())
-            parent->removeChildComponent(editor.get());
-    }
-
-    struct EditBoxLnF : juce::LookAndFeel_V4
-    {
-        void drawTextEditorOutline(juce::Graphics& g, int w, int h, juce::TextEditor&) override
-        {
-            g.setColour(juce::Colour(128, 128, 128));
-            g.drawRect(0, 0, w, h, 1);
-        }
-    };
-    static EditBoxLnF& getEditBoxLnF() { static EditBoxLnF lnf; return lnf; }
-
-    static int findNumericEnd(const juce::String& text)
-    {
-        int i = 0, len = text.length();
-        if (i < len && (text[i] == '+' || text[i] == '-')) i++;
-        bool hasDigit = false;
-        while (i < len && (juce::CharacterFunctions::isDigit(text[i]) || text[i] == '.'))
-        { if (text[i] != '.') hasDigit = true; i++; }
-        return hasDigit ? i : len;
-    }
-
-    juce::RangedAudioParameter* mParam = nullptr;
-    juce::Image mSpriteSheet;
-    KR106Tooltip* mTooltip = nullptr;
-    KR106AudioProcessor* mProcessor = nullptr;
-    int mParamIdx = -1;
-    int mNumFrames = 32;
-    juce::Image mBgImage;
-    float mAccumVal = 0.f;
-    float mLastRawDelta = 0.f;
-    bool mDragging = false;
-    bool mCursorDirty = false;
-    bool mSnapCenter = false;
-    bool mInSnapZone = false;
-    float mGearing = 127.f;
-    std::unique_ptr<juce::TextEditor> mEditor;
-
-    void applyCursorWorkaround(const juce::MouseEvent& e)
-    {
-        if (!mCursorDirty) return;
-        mCursorDirty = false;
-        if (auto* source = juce::Desktop::getInstance().getMouseSource(e.source.getIndex()))
-        {
-            source->showMouseCursor(getMouseCursor());
-            source->forceMouseCursorUpdate();
-        }
-    }
-};
+    KR106ButtonLED(juce::RangedAudioParameter* param, int buttonType,

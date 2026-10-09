@@ -1,131 +1,91 @@
-// Android host for the KR-106: runs the synth + touch editor as a normal app
-// (no plugin wrapper). Audio goes through JUCE's Oboe backend, MIDI comes from
-// any USB / Bluetooth controller the OS exposes, and the sound is also
-// playable from the on-screen "Keys" sheet.
+#pragma once
 
-#include <juce_audio_utils/juce_audio_utils.h>
-#include "../Source/PluginProcessor.h"
+#include <juce_gui_basics/juce_gui_basics.h>
+#include <juce_audio_processors/juce_audio_processors.h>
 
-class KR106Root : public juce::Component, private juce::Timer
+#include "KR106Tooltip.h"
+#include "../PluginProcessor.h"
+
+// ============================================================================
+// KR106Switch — Vertical bitmap-based multi-position switch.
+// Always uses the 3-way sprite sheet (3 frames stacked vertically, @2x).
+// For 2-way params: displays frames 0 and 2 (skipping middle).
+// Click cycles through states; vertical drag snaps to nearest position.
+// ============================================================================
+class KR106Switch : public juce::Component
 {
 public:
-    KR106Root()
+    KR106Switch(juce::RangedAudioParameter* param, const juce::Image& spriteSheet,
+                int numPositions, KR106Tooltip* tip = nullptr)
+        : mParam(param)
+        , mSpriteSheet(spriteSheet)
+        , mNumPositions(numPositions)
+        , mTooltip(tip)
     {
-        processor = std::make_unique<KR106AudioProcessor>();
-        restoreState();
-
-        const auto err = deviceManager.initialise(0, 2, nullptr, true);
-        if (err.isNotEmpty())
-            DBG("Audio init: " << err);
-
-        player.setProcessor(processor.get());
-        deviceManager.addAudioCallback(&player);
-
-        editor = std::make_unique<juce::AudioProcessorEditor>(
-            *processor, juce::Rectangle<int>(0, 0, 640, 480));
-
-        // This is intentionally minimal: the Android host is just a compile-time
-        // sanity check for the synth + editor path. It avoids creating GUI objects
-        // that depend on the project layout without a full platform UI bootstrap.
-        if (editor)
-            addAndMakeVisible(editor.get());
-
-        startTimer(1500);
     }
 
-    ~KR106Root() override
-    {
-        stopTimer();
-        saveState();
-        deviceManager.removeAudioCallback(&player);
-        player.setProcessor(nullptr);
-        editor.reset();
-    }
-
-    void resized() override
-    {
-        auto b = getLocalBounds();
-        if (editor)
-            editor->setBounds(b);
-    }
+    void setMidiLearn(KR106AudioProcessor* proc, int paramIdx)
+    { mProcessor = proc; mParamIdx = paramIdx; }
 
     void paint(juce::Graphics& g) override
     {
-        g.fillAll(juce::Colour(0xff0c0c0c));
+        float val = mParam ? mParam->getValue() : 0.f;
+        int pos = (int)std::round(val * (mNumPositions - 1));
+        pos = juce::jlimit(0, mNumPositions - 1, pos);
+
+        // Map position to sprite frame: 2-way uses frames 0,2; 3-way uses 0,1,2
+        int spriteIdx = (mNumPositions == 2) ? (pos == 0 ? 0 : 2) : pos;
+
+        int frameW2x = mSpriteSheet.getWidth();
+        int frameH2x = mSpriteSheet.getHeight() / 3; // always 3 frames in sheet
+        float frameW = frameW2x / 2.f;
+        float frameH = frameH2x / 2.f;
+
+        g.drawImage(mSpriteSheet,
+                    0.f, 0.f, frameW, frameH,
+                    0, spriteIdx * frameH2x, frameW2x, frameH2x);
+
+        paintMidiLearnBorder(g);
     }
 
-    void saveState()
+    void mouseEnter(const juce::MouseEvent&) override
     {
-        juce::MemoryBlock mb;
-        processor->getStateInformation(mb);
-        auto f = stateFile();
-        f.getParentDirectory().createDirectory();
-        f.replaceWithData(mb.getData(), mb.getSize());
+        if (mTooltip)
+        {
+            updateCCLine();
+            mTooltip->show(mParam, this);
+        }
     }
 
-private:
-    static juce::File stateFile()
+    void mouseExit(const juce::MouseEvent&) override
     {
-        return KR106PresetManager::getAppDataDir().getChildFile("android-state.bin");
+        if (mTooltip) mTooltip->hide();
     }
 
-    void restoreState()
+    void mouseDown(const juce::MouseEvent& e) override
     {
-        auto f = stateFile();
-        juce::MemoryBlock mb;
-        if (f.existsAsFile() && f.loadFileAsData(mb) && mb.getSize() > 0)
-            processor->setStateInformation(mb.getData(), (int)mb.getSize());
+        if (e.mods.isPopupMenu() && mProcessor && mParamIdx >= 0)
+        {
+            mProcessor->startMidiLearn(mParamIdx);
+            updateCCLine();
+            if (mTooltip) mTooltip->show(mParam, this);
+            repaint();
+            return;
+        }
+        if (e.mods.isPopupMenu()) return;
+        if (mProcessor && mProcessor->mMidiLearnParam.load(std::memory_order_relaxed) >= 0)
+        {
+            mProcessor->cancelMidiLearn();
+            if (mTooltip) mTooltip->hide();
+            repaint();
+        }
+        mDragStartY = e.position.y;
+        mDragStartIdx = currentIdx();
+        mDragged = false;
     }
 
-    void timerCallback() override {}
-
-    juce::AudioDeviceManager deviceManager;
-    juce::AudioProcessorPlayer player;
-    std::unique_ptr<KR106AudioProcessor> processor;
-    std::unique_ptr<juce::AudioProcessorEditor> editor;
-};
-
-class KR106Window : public juce::DocumentWindow
-{
-public:
-    KR106Window()
-        : DocumentWindow("Ultramaster KR-106", juce::Colour(0xff0c0c0c), 0)
+    void mouseDrag(const juce::MouseEvent& e) override
     {
-        setUsingNativeTitleBar(false);
-        setTitleBarHeight(0);
-        setContentOwned(new KR106Root(), true);
-        setFullScreen(true);
-        setVisible(true);
-    }
+        if (!mParam || mNumPositions <= 1) return;
 
-    void closeButtonPressed() override
-    {
-        juce::JUCEApplication::getInstance()->systemRequestedQuit();
-    }
-};
-
-class KR106App : public juce::JUCEApplication
-{
-public:
-    const juce::String getApplicationName() override { return "Ultramaster KR-106"; }
-    const juce::String getApplicationVersion() override { return JucePlugin_VersionString; }
-    bool moreThanOneInstanceAllowed() override { return false; }
-
-    void initialise(const juce::String&) override
-    {
-        window = std::make_unique<KR106Window>();
-    }
-
-    void shutdown() override
-    {
-        window.reset();
-    }
-
-    void suspended() override {}
-    void systemRequestedQuit() override { quit(); }
-
-private:
-    std::unique_ptr<KR106Window> window;
-};
-
-START_JUCE_APPLICATION(KR106App)
+        float totalDrag = e.position.y - mDragStartY;
