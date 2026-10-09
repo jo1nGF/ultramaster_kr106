@@ -1,0 +1,73 @@
+name: Android APK (KR-106 touch)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ android ]
+
+jobs:
+  apk:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fetch JUCE (only the submodule we need)
+        run: git submodule update --init --depth 1 libs/JUCE
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Linux packages for building the Projucer
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libasound2-dev libx11-dev libxcomposite-dev libxcursor-dev \
+            libxext-dev libxinerama-dev libxrandr-dev libxrender-dev libfreetype-dev \
+            libfontconfig1-dev libgl1-mesa-dev libcurl4-openssl-dev xvfb ninja-build
+
+      - name: Cache Projucer
+        id: projucer-cache
+        uses: actions/cache@v4
+        with:
+          path: build-projucer/extras/Projucer/Projucer_artefacts/Release/Projucer
+          key: projucer-${{ hashFiles('.gitmodules') }}-${{ runner.os }}-v1
+
+      - name: Build Projucer
+        if: steps.projucer-cache.outputs.cache-hit != 'true'
+        run: |
+          cmake -S libs/JUCE -B build-projucer -G Ninja -DCMAKE_BUILD_TYPE=Release \
+                -DJUCE_BUILD_EXTRAS=ON -DJUCE_BUILD_EXAMPLES=OFF
+          cmake --build build-projucer --target Projucer
+
+      - name: Android SDK components (versions Projucer 8.0.12 generates for)
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" \
+            "platforms;android-35" "build-tools;35.0.0" "ndk;28.1.13356709" "cmake;3.22.1"
+
+      - name: Debug keystore (the Projucer default signing key)
+        run: |
+          mkdir -p ~/.android
+          [ -f ~/.android/debug.keystore ] || keytool -genkey -v -keystore ~/.android/debug.keystore \
+            -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 \
+            -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
+
+      - name: Generate the Gradle project from KR106Touch.jucer
+        run: xvfb-run -a build-projucer/extras/Projucer/Projucer_artefacts/Release/Projucer --resave KR106Touch.jucer
+
+      - name: Build release APK (arm64-v8a)
+        working-directory: Builds/Android
+        run: ./gradlew assembleRelease --no-daemon
+
+      - name: Collect APK
+        run: |
+          mkdir -p out
+          find Builds/Android -name '*.apk' -path '*release*' -exec cp -v {} out/KR106-touch.apk \;
+          ls -la out
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: KR106-touch-apk
+          path: out/KR106-touch.apk
