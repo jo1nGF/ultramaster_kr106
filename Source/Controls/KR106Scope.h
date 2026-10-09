@@ -1,58 +1,1583 @@
 #pragma once
 
 #include <juce_gui_basics/juce_gui_basics.h>
-#include <juce_audio_processors/juce_audio_processors.h>
-#include "../PluginProcessor.h"
+#include <juce_dsp/juce_dsp.h>
+#include "KR106Touch.h"
+#include "PluginProcessor.h"
+#include "KR106MenuSheet.h"
+#include <algorithm>
+#include <cmath>
+#include <cstdint>
+#include <vector>
 
 // ============================================================================
-// KR106Keyboard — pixel-perfect 61-key keyboard (C2-C7)
-// 792x114 pixels: 5px strip for transpose chevron + 109px keys
-// Port of KR106KeyboardControl from iPlug2
+// KR106Scope -- oscilloscope display (green waveform on black)
+// Triggered by oscillator sync pulse; reads from processor's ring buffer
+// Port of KR106ScopeControl from iPlug2
 // ============================================================================
-class KR106Keyboard : public juce::Component
+class KR106Scope : public juce::Component
 {
 public:
-    static constexpr int kMinNote = 36;  // C2
-    static constexpr int kNumKeys = 61;
+    static constexpr int RING_SIZE = 4096;
 
-    KR106Keyboard(KR106AudioProcessor* processor, const juce::Image& chevronImage)
-        : mProcessor(processor)
-        , mChevronImage(chevronImage)
+    // Shared scope drawing constants
+    static constexpr float kTickW = 1.f;
+    static constexpr float kTickH = 3.f;
+    static constexpr float kGridW = 1.f;
+    static constexpr int   kTickSpacing = 5;
+    static inline juce::Colour cBlack()  { return juce::Colour(0, 0, 0); }
+    static inline juce::Colour cGrid()   { return juce::Colour(0, 64, 0); }
+    static inline juce::Colour cDim()    { return juce::Colour(0, 128, 0); }
+    static inline juce::Colour cMid()    { return juce::Colour(0, 192, 0); }
+    static inline juce::Colour cBright() { return juce::Colour(0, 255, 0); }
+
+    // Center crosshairs with tick marks every kTickSpacing px
+    void paintCrosshairs(juce::Graphics& g, int w, int h, juce::Colour /*dim*/)
     {
+        float cx = std::round(w * 0.5f);
+        float cy = std::round(h * 0.5f);
+
+        // Center lines
+        g.setColour(cGrid());
+        g.fillRect(cx, 0.f, kGridW, static_cast<float>(h));
+        g.fillRect(0.f, cy, static_cast<float>(w), kGridW);
+
+        // Ticks on horizontal center line (radiating from center, shifted 1px down)
+        for (int i = kTickSpacing; ; i += kTickSpacing)
+        {
+            float xr = cx + i, xl = cx - i;
+            bool any = false;
+            if (xr < w) { g.fillRect(xr, cy - kTickH * 0.5f + 0.5f, kTickW, kTickH); any = true; }
+            if (xl >= 0) { g.fillRect(xl, cy - kTickH * 0.5f + 0.5f, kTickW, kTickH); any = true; }
+            if (!any) break;
+        }
+
+        // Ticks on vertical center line (radiating from center, shifted 1px right)
+        for (int i = kTickSpacing; ; i += kTickSpacing)
+        {
+            float yd = cy + i, yu = cy - i;
+            bool any = false;
+            if (yd < h) { g.fillRect(cx - kTickH * 0.5f + 0.5f, yd, kTickH, kTickW); any = true; }
+            if (yu >= 0) { g.fillRect(cx - kTickH * 0.5f + 0.5f, yu, kTickH, kTickW); any = true; }
+            if (!any) break;
+        }
     }
+
+    KR106Scope(KR106AudioProcessor* processor)
+        : mProcessor(processor)
+    {
+        setMouseCursor(juce::MouseCursor::PointingHandCursor);
+        if (mProcessor)
+            mScaleIdx = mProcessor->mScopePage;
+    }
+
+    void mouseMove(const juce::MouseEvent& e) override
+    {
+        int ch = getHeight() - kNavH;
+        int arrowW = kNavH;
+
+        // Nav bar hover (all modes)
+        int prevNav = mNavHover;
+        if (e.y >= ch)
+            mNavHover = (e.x < arrowW) ? 0 : (e.x >= getWidth() - arrowW ? 1 : -1);
+        else
+            mNavHover = -1;
+        if (mNavHover != prevNav) repaint();
+
+        // Patch bank hover
+        if (mScaleIdx == 4)
+        {
+            int prev = mPatchBankHover;
+            mPatchBankHover = (e.y < ch) ? patchIndexAt(e.x, e.y) : -1;
+            if (mPatchBankHover != prev) repaint();
+        }
+
+        // ADSR: show resize cursor near draggable targets
+        if (mScaleIdx == 2 && e.y < ch)
+        {
+            float xNorm = static_cast<float>(e.x) / getWidth();
+            float hitZone = 5.f / getWidth();
+            int adsrHit = adsrHitTest(xNorm, static_cast<float>(e.y) / ch, hitZone);
+            if (adsrHit == kEnvS)
+                setMouseCursor(juce::MouseCursor::UpDownResizeCursor);
+            else if (adsrHit >= 0)
+                setMouseCursor(juce::MouseCursor::LeftRightResizeCursor);
+            else
+                setMouseCursor(juce::MouseCursor::NormalCursor);
+        }
+        else if (mScaleIdx != 2)
+        {
+            setMouseCursor(juce::MouseCursor::NormalCursor);
+        }
+    }
+
+    void mouseExit(const juce::MouseEvent&) override
+    {
+        if (mPatchBankHover >= 0) { mPatchBankHover = -1; repaint(); }
+        if (mNavHover >= 0) { mNavHover = -1; repaint(); }
+    }
+
+    // Stroke width that stays ~1.5 physical pixels regardless of UI scale
+    float strokeWidth() const
+    {
+        float scale = (mProcessor && mProcessor->mUIScale > 0.f)
+                        ? mProcessor->mUIScale : 1.f;
+        return 1.5f / scale;
+    }
+
+    static constexpr int kNavH = 10; // nav bar height at bottom
 
     void paint(juce::Graphics& g) override
     {
-        float ox = 0.f;
-        float strip = 0.f;  // 5px strip at top for transpose indicator
-        float oy = 5.f;     // keys start here
+        int w = getWidth();
+        int h = getHeight();
+        int ch = h - kNavH; // content height (above nav bar)
 
-        // Fill entire white-key area first to avoid sub-pixel gaps on Windows
-        g.setColour(kKB_Light);
-        g.fillRect(ox, oy, 792.f, 107.f);
+        auto black = cBlack(), dim = cDim(), mid = cMid(), bright = cBright();
 
-        for (int oct = 0; oct < 5; oct++)
+        g.setColour(black);
+        g.fillRect(0, 0, w, h);
+
+        if (mProcessor && mProcessor->getParam(kPower)->getValue() <= 0.5f)
+            return;
+
         {
-            int key = oct * 12;
-            float x = ox + oct * 154;
-            KB_DrawLeft   (g, x,       oy, mKeys[key]);
-            KB_DrawBlack  (g, x + 13,  oy, mKeys[key + 1]);
-            KB_DrawMiddle1(g, x + 22,  oy, mKeys[key + 2]);
-            KB_DrawBlack  (g, x + 40,  oy, mKeys[key + 3]);
-            KB_DrawRight  (g, x + 44,  oy, mKeys[key + 4]);
-            KB_DrawLeft   (g, x + 66,  oy, mKeys[key + 5]);
-            KB_DrawBlack  (g, x + 79,  oy, mKeys[key + 6]);
-            KB_DrawMiddle2(g, x + 88,  oy, mKeys[key + 7]);
-            KB_DrawBlack  (g, x + 103, oy, mKeys[key + 8]);
-            KB_DrawMiddle3(g, x + 110, oy, mKeys[key + 9]);
-            KB_DrawBlack  (g, x + 128, oy, mKeys[key + 10]);
-            KB_DrawRight  (g, x + 132, oy, mKeys[key + 11]);
+            juce::Graphics::ScopedSaveState sss(g);
+            g.reduceClipRegion(0, 0, w, ch);
+
+            switch (mScaleIdx)
+            {
+                case 0: paintWaveform(g, w, ch, black, dim, mid, bright); break;
+                case 1: paintSpectrum(g, w, ch, dim, mid, bright); break;
+                case 2: paintADSR(g, w, ch, dim, mid, bright); break;
+                case 3: paintVCF(g, w, ch, dim, mid, bright); break;
+                case 4: paintPatchBank(g, w, ch, dim, mid, bright); break;
+                default: paintAbout(g, w, ch, dim, mid, bright); break;
+            }
         }
-        KB_DrawLast(g, ox + 770, oy, mKeys[60]);
 
-        // Transpose indicator — chevron bitmap in the 5px strip above keys
-        if (mTransposeKey >= 0)
+        paintNavBar(g, w, h, ch, dim);
+    }
+
+    void mouseDown(const juce::MouseEvent& e) override
+    {
+        int ch = getHeight() - kNavH;
+
+        // Nav bar click: all modes
+        if (e.y >= ch)
         {
-            static const int xOffsets[12] = {0, 13, 22, 40, 44, 66, 79, 88, 103, 110, 128, 132};
-            static const float kCX[12]    = {7.f, 7.f,12.f, 7.f,16.f, 7.f, 7.f,10.f, 7.f,13.f, 7.f,16.f};
-            float kx = (mTransposeKey == 60) ? ox + 770
+            int arrowW = kNavH;
+            if (e.x < arrowW)
+                cycleMode(-1);
+            else if (e.x >= getWidth() - arrowW)
+                cycleMode(1);
+            return;
+        }
+
+        if (mScaleIdx == 4 && mProcessor)
+        {
+            if (mBallActive)
+            {
+                mBallActive = false;
+                repaint();
+                return;
+            }
+
+            int idx = patchIndexAt(e.x, e.y);
+            if (idx < 0) return;
+
+            // Select patch and start drag
+            mProcessor->setCurrentProgram(idx);
+            mDragOriginX = (idx % kPBCols) * kPBCell + kPBCell / 2;
+            mDragOriginY = (idx / kPBCols) * kPBCell + kPBCell / 2;
+            mDragEndX = e.x;
+            mDragEndY = e.y;
+            mDragging = true;
+            repaint();
+            if (auto* parent = getParentComponent())
+                parent->repaint();
+            return;
+        }
+
+        // Interactive parameter drags
+        if (!mProcessor) return;
+        mScopeDragMode = kDragNone;
+
+        if (mScaleIdx == 0 || mScaleIdx == 1) // Waveform/Spectrum: drag = master volume
+        {
+            mScopeDragMode = kDragWaveform;
+            mDragStartVal[0] = mProcessor->getParam(kMasterVol)->getValue();
+            mProcessor->getParam(kMasterVol)->beginChangeGesture();
+        }
+        else if (mScaleIdx == 3) // VCF: X = freq, Y = res (direct position)
+        {
+            mScopeDragMode = kDragVCF;
+            mProcessor->getParam(kVcfFreq)->beginChangeGesture();
+            mProcessor->getParam(kVcfRes)->beginChangeGesture();
+            // Set immediately from click position
+            float vf = juce::jlimit(0.f, 1.f, static_cast<float>(e.x) / getWidth());
+            float vr = juce::jlimit(0.f, 1.f, 1.f - static_cast<float>(e.y) / ch);
+            mProcessor->getParam(kVcfFreq)->setValueNotifyingHost(vf);
+            mProcessor->getParam(kVcfRes)->setValueNotifyingHost(vr);
+        }
+        else if (mScaleIdx == 2) // ADSR: drag boundary lines or sustain level
+        {
+            float xNorm = static_cast<float>(e.x) / getWidth();
+            float yNorm = static_cast<float>(e.y) / ch;
+            float hitZone = 5.f / getWidth();
+            int hit = adsrHitTest(xNorm, yNorm, hitZone);
+            if (hit < 0) return; // click not near a target
+            mAdsrDragParam = hit;
+            mScopeDragMode = kDragADSR;
+            mDragStartVal[0] = mProcessor->getParam(mAdsrDragParam)->getValue();
+            mProcessor->getParam(mAdsrDragParam)->beginChangeGesture();
+            setMouseCursor(mAdsrDragParam == kEnvS
+                ? juce::MouseCursor::UpDownResizeCursor
+                : juce::MouseCursor::LeftRightResizeCursor);
+        }
+    }
+
+    void mouseDrag(const juce::MouseEvent& e) override
+    {
+        if (mScaleIdx == 4 && mDragging)
+        {
+            mDragEndX = std::clamp(e.x, 0, getWidth() - 1);
+            mDragEndY = std::clamp(e.y, 0, getHeight() - 1);
+            repaint();
+            return;
+        }
+
+        if (!mProcessor || mScopeDragMode == kDragNone) return;
+
+        float dx = static_cast<float>(e.getDistanceFromDragStartX());
+        float dy = static_cast<float>(e.getDistanceFromDragStartY());
+        float gearing = e.mods.isShiftDown() ? 500.f : 128.f;
+
+        int ch = getHeight() - kNavH;
+
+        if (mScopeDragMode == kDragWaveform)
+        {
+            float v = juce::jlimit(0.f, 1.f, mDragStartVal[0] + (dx - dy) / gearing);
+            mProcessor->getParam(kMasterVol)->setValueNotifyingHost(v);
+        }
+        else if (mScopeDragMode == kDragVCF)
+        {
+            // Direct position: X = freq, Y = res
+            float vf = juce::jlimit(0.f, 1.f, static_cast<float>(e.x) / getWidth());
+            float vr = juce::jlimit(0.f, 1.f, 1.f - static_cast<float>(e.y) / ch);
+            mProcessor->getParam(kVcfFreq)->setValueNotifyingHost(vf);
+            mProcessor->getParam(kVcfRes)->setValueNotifyingHost(vr);
+        }
+        else if (mScopeDragMode == kDragADSR)
+        {
+            float delta;
+            if (mAdsrDragParam == kEnvS)
+                delta = -dy / gearing;  // sustain: up = more
+            else if (mAdsrDragParam == kEnvR)
+                delta = -dx / gearing;  // release: right = shorter, left = longer
+            else
+                delta = dx / gearing;   // A/D: right = longer
+            float v = juce::jlimit(0.f, 1.f, mDragStartVal[0] + delta);
+            mProcessor->getParam(mAdsrDragParam)->setValueNotifyingHost(v);
+        }
+        repaint();
+    }
+
+    void mouseUp(const juce::MouseEvent& e) override
+    {
+        if (mScaleIdx == 4 && mDragging)
+        {
+            mDragging = false;
+
+            // Only launch if mouse released outside the origin cell
+            int releaseIdx = patchIndexAt(mDragEndX, mDragEndY);
+            int originIdx = patchIndexAt(mDragOriginX, mDragOriginY);
+            float dx = static_cast<float>(mDragEndX - mDragOriginX);
+            float dy = static_cast<float>(mDragEndY - mDragOriginY);
+            float mag = std::sqrt(dx * dx + dy * dy);
+
+            if (releaseIdx != originIdx && mag > 1.f)
+            {
+                // Quadratic curve: short drags = very slow, long drags = fast
+                float norm = std::min(mag / 80.f, 1.f);
+                mBallSpeed = norm * norm * 0.45f;
+                mBallAccum = 0.f;
+                mBallErrX = 0.f;
+                mBallErrY = 0.f;
+                mBallCellX = originIdx % kPBCols;
+                mBallCellY = originIdx / kPBCols;
+                // Direction opposite to drag (pool cue)
+                mBallDX = -dx / mag;
+                mBallDY = -dy / mag;
+                mBallActive = true;
+            }
+            repaint();
+        }
+
+        // End parameter drag gestures
+        if (mProcessor && mScopeDragMode != kDragNone)
+        {
+            if (mScopeDragMode == kDragWaveform)
+                mProcessor->getParam(kMasterVol)->endChangeGesture();
+            else if (mScopeDragMode == kDragVCF)
+            {
+                mProcessor->getParam(kVcfFreq)->endChangeGesture();
+                mProcessor->getParam(kVcfRes)->endChangeGesture();
+            }
+            else if (mScopeDragMode == kDragADSR)
+            {
+                mProcessor->getParam(mAdsrDragParam)->endChangeGesture();
+                setMouseCursor(juce::MouseCursor::NormalCursor);
+            }
+            mScopeDragMode = kDragNone;
+        }
+    }
+
+    void setTypeface(juce::Typeface::Ptr tf) { mTypeface = tf; }
+
+    void cycleMode(int delta)
+    {
+        mAboutActive = false;
+        int n = kNumModes;
+        int next = ((mScaleIdx + delta) % n + n) % n;
+        mScaleIdx = next;
+        if (mProcessor) mProcessor->mScopePage = mScaleIdx;
+        repaint();
+    }
+
+    void togglePatchBank()
+    {
+        if (mScaleIdx == 4)
+        {
+            mBallActive = false;
+            mScaleIdx = mPrePatchBankMode;
+        }
+        else
+        {
+            mPrePatchBankMode = mScaleIdx;
+            mScaleIdx = 4;
+        }
+        mAboutActive = false;
+        if (mProcessor) mProcessor->mScopePage = mScaleIdx;
+        repaint();
+    }
+
+    // Call from editor's timer callback (~30 Hz) to pull data from processor
+    void updateFromProcessor()
+    {
+        if (!mProcessor) return;
+
+        // Read processor's write position (acquire ordering)
+        int writePos = mProcessor->mScopeWritePos.load(std::memory_order_acquire);
+
+        // Calculate how many new samples are available
+        int newSamples = (writePos - mLocalReadPos + KR106AudioProcessor::kScopeRingSize)
+                         % KR106AudioProcessor::kScopeRingSize;
+        if (newSamples == 0)
+        {
+            if (mScaleIdx == 5) repaint(); // animate about screen beam
+            else if (mScaleIdx == 4) { updateBall(); repaint(); }
+            else if (mScaleIdx >= 2) repaintIfParamsChanged();
+            return;
+        }
+
+        // Copy new samples into local ring buffer
+        float peak = 0.f;
+        for (int i = 0; i < newSamples; i++)
+        {
+            int srcIdx = (mLocalReadPos + i) % KR106AudioProcessor::kScopeRingSize;
+            float s = mProcessor->mScopeRing[srcIdx];
+            float absS = s < 0.f ? -s : s;
+            if (absS > peak) peak = absS;
+
+            mRing[mRingWritePos]     = s;
+            mRingR[mRingWritePos]    = mProcessor->mScopeRingR[srcIdx];
+            mSyncRing[mRingWritePos] = mProcessor->mScopeSyncRing[srcIdx];
+            mRingWritePos = (mRingWritePos + 1) % RING_SIZE;
+        }
+        mLocalReadPos = writePos;
+        mSamplesAvail += newSamples;
+        if (mSamplesAvail > RING_SIZE) mSamplesAvail = RING_SIZE;
+
+        // Update bouncing ball regardless of audio level
+        if (mScaleIdx == 4) updateBall();
+
+        // If audio is silent, clear display and zero stale buffers.
+        // Threshold set above the analog noise floor (~1e-4) so the scope
+        // blanks promptly on note-off in gate mode.
+        if (peak < 1e-3f)
+        {
+            mHasData = false;
+            mDisplayLen = 0;
+            mSamplesAvail = 0;
+            repaint();
+            return;
+        }
+
+        // Search backwards for two consecutive sync pulses -- the samples
+        // between them are one full sub-oscillator period (two DCO cycles)
+        int endDist = -1, startDist = -1;
+        for (int s = 1; s <= mSamplesAvail; s++)
+        {
+            int idx = (mRingWritePos - s + RING_SIZE) % RING_SIZE;
+            if (mSyncRing[idx] > 0.f)
+            {
+                if (endDist < 0)
+                    endDist = s;
+                else
+                {
+                    startDist = s;
+                    break;
+                }
+            }
+        }
+
+        if (startDist > 0 && endDist > 0)
+        {
+            int period = startDist - endDist;
+            if (period > 1)
+            {
+                mDisplayLen = period;
+                int startIdx = (mRingWritePos - startDist + RING_SIZE) % RING_SIZE;
+                for (int i = 0; i < period; i++)
+                {
+                    int idx = (startIdx + i) % RING_SIZE;
+                    mDisplay[i]  = mRing[idx];
+                    mDisplayR[i] = mRingR[idx];
+                }
+                mHasData = true;
+            }
+        }
+        else
+        {
+            // No sync pulses (noise only, self-osc only, etc.).
+            // Show the most recent samples as a free-running display
+            // so the scope stays active rather than freezing on stale data.
+            int freeLen = std::min(mSamplesAvail, RING_SIZE / 2);
+            if (freeLen > 1)
+            {
+                mDisplayLen = freeLen;
+                int startIdx = (mRingWritePos - freeLen + RING_SIZE) % RING_SIZE;
+                for (int i = 0; i < freeLen; i++)
+                {
+                    int idx = (startIdx + i) % RING_SIZE;
+                    mDisplay[i]  = mRing[idx];
+                    mDisplayR[i] = mRingR[idx];
+                }
+                mHasData = true;
+            }
+        }
+
+        repaint();
+    }
+
+private:
+    void updateBall()
+    {
+        if (!mBallActive || !mProcessor) return;
+
+        // Accumulate speed; step one cell when >= 1.0
+        mBallAccum += mBallSpeed;
+        if (mBallAccum < 1.f) return;
+        mBallAccum -= 1.f;
+
+        // Step one cell — use Bresenham-style error to follow the angle
+        // Decide whether to step X, Y, or both (diagonal)
+        mBallErrX += std::abs(mBallDX);
+        mBallErrY += std::abs(mBallDY);
+
+        int sx = (mBallDX >= 0.f) ? 1 : -1;
+        int sy = (mBallDY >= 0.f) ? 1 : -1;
+        int cx = mBallCellX, cy = mBallCellY;
+
+        if (mBallErrX >= mBallErrY)
+        {
+            cx += sx;
+            mBallErrX -= 1.f;
+            if (mBallErrY >= 0.5f) { cy += sy; mBallErrY -= 1.f; }
+        }
+        else
+        {
+            cy += sy;
+            mBallErrY -= 1.f;
+            if (mBallErrX >= 0.5f) { cx += sx; mBallErrX -= 1.f; }
+        }
+
+        // Bounce off walls
+        if (cx < 0)              { cx = 1;            mBallDX = -mBallDX; }
+        if (cx > kPBCols - 1)    { cx = kPBCols - 2;  mBallDX = -mBallDX; }
+        if (cy < 0)              { cy = 1;            mBallDY = -mBallDY; }
+        if (cy > kPBRows - 1)    { cy = kPBRows - 2;  mBallDY = -mBallDY; }
+
+        mBallCellX = cx;
+        mBallCellY = cy;
+
+        int cellIdx = cy * kPBCols + cx;
+        int num = mProcessor->getNumPrograms();
+        if (cellIdx >= 0 && cellIdx < num)
+        {
+            mProcessor->setCurrentProgram(cellIdx);
+            if (auto* parent = getParentComponent())
+                parent->repaint();
+        }
+    }
+
+    static constexpr int kPBCols = 16, kPBRows = 8, kPBCell = 8;
+    static constexpr int kPBGridH = kPBRows * kPBCell; // 64px for grid
+
+    int patchIndexAt(int x, int y) const
+    {
+        if (y >= kPBGridH) return -1; // nav area
+        int col = x / kPBCell;
+        int row = y / kPBCell;
+        if (col < 0 || col >= kPBCols || row < 0 || row >= kPBRows) return -1;
+        int idx = row * kPBCols + col;
+        int num = mProcessor ? mProcessor->getNumPrograms() : 128;
+        return (idx >= 0 && idx < num) ? idx : -1;
+    }
+
+    // ---- Waveform display ----
+    void paintWaveform(juce::Graphics& g, int w, int h,
+                       juce::Colour /*black*/, juce::Colour dim, juce::Colour mid, juce::Colour bright)
+    {
+        int v2 = h / 2;
+        float scale = 1.f;
+
+        paintCrosshairs(g, w, h, dim);
+
+        // Flat line when idle
+        if (!mHasData || mDisplayLen < 2)
+        {
+            float cy = static_cast<float>(h) * 0.5f;
+            g.setColour(mid);
+            g.drawHorizontalLine(static_cast<int>(cy), 0.f, static_cast<float>(w));
+        }
+
+        // Waveform -- one full period interpolated, smooth 2px path
+        if (mHasData && mDisplayLen > 1)
+        {
+            auto interpY = [&](const float* buf, float px) -> float {
+                float pos = px / w * mDisplayLen;
+                int s0 = static_cast<int>(pos);
+                float frac = pos - s0;
+                if (s0 >= mDisplayLen - 1) { s0 = mDisplayLen - 2; frac = 1.f; }
+                float sample = buf[s0] + frac * (buf[s0 + 1] - buf[s0]);
+                return (sample / scale) * -v2 + v2;
+            };
+
+            // R channel (dimmer, drawn first so L overlays it)
+            {
+                juce::Path pathR;
+                pathR.startNewSubPath(0.f, interpY(mDisplayR, 0.f));
+                for (float px = 0.5f; px < w; px += 0.5f)
+                    pathR.lineTo(px, interpY(mDisplayR, px));
+                g.setColour(dim);
+                g.strokePath(pathR, juce::PathStrokeType(strokeWidth(), juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+            }
+
+            // L channel (bright, on top) + peak measurement
+            float peakL = 0.f;
+            {
+                juce::Path pathL;
+                pathL.startNewSubPath(0.f, interpY(mDisplay, 0.f));
+                for (float px = 0.5f; px < w; px += 0.5f)
+                {
+                    float y = interpY(mDisplay, px);
+                    pathL.lineTo(px, y);
+                    float sample = (v2 - y) / v2 * scale;
+                    peakL = std::max(peakL, fabsf(sample));
+                }
+                g.setColour(bright);
+                g.strokePath(pathL, juce::PathStrokeType(strokeWidth(), juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+            }
+
+            mNavPeakDb = peakL > 1e-10f ? 20.f * log10f(peakL) : -200.f;
+        }
+    }
+
+    // ---- Spectrum analyzer (FFT) ----
+    void paintSpectrum(juce::Graphics& g, int w, int h,
+                       juce::Colour dim, juce::Colour mid, juce::Colour bright)
+    {
+        ensureHannWindow();
+
+        // Measure peak for nav bar dB readout
+        {
+            float peak = 0.f;
+            int available = std::min(mSamplesAvail, kFFTSize);
+            for (int i = 0; i < available; i++)
+            {
+                int idx = (mRingWritePos - available + i + RING_SIZE) % RING_SIZE;
+                float s = fabsf(mRing[idx]);
+                if (s > peak) peak = s;
+            }
+            mNavPeakDb = peak > 1e-10f ? 20.f * log10f(peak) : -200.f;
+        }
+
+        // Fill FFT input from ring buffer (most recent samples)
+        memset(mFFTData, 0, sizeof(mFFTData));
+        int available = std::min(mSamplesAvail, kFFTSize);
+        for (int i = 0; i < available; i++)
+        {
+            int idx = (mRingWritePos - available + i + RING_SIZE) % RING_SIZE;
+            mFFTData[i] = mRing[idx] * mHannWindow[i];
+        }
+
+        // FFT (using cached FFT object)
+        mFFT.performRealOnlyForwardTransform(mFFTData);
+
+        // Compute magnitudes in dB with temporal smoothing.
+        // Skip bin 0 (DC) and last bin (Nyquist) -- JUCE real-only FFT
+        // packs Nyquist into imag of bin 0, so both are unreliable.
+        int numBins = kFFTSize / 2;
+        float magnitudes[kFFTSize / 2];
+        magnitudes[0] = -120.f;
+        for (int i = 1; i < numBins - 1; i++)
+        {
+            float re = mFFTData[i * 2];
+            float im = mFFTData[i * 2 + 1];
+            float mag = sqrtf(re * re + im * im) / numBins;
+            float db = 20.f * log10f(std::max(mag, 1e-7f));
+            if (!mSpecInit)
+                mSmoothedSpec[i] = db;
+            else
+                mSmoothedSpec[i] = mSmoothedSpec[i] * kSpecSmooth + db * (1.f - kSpecSmooth);
+            magnitudes[i] = mSmoothedSpec[i];
+        }
+        magnitudes[numBins - 1] = magnitudes[numBins - 2]; // clamp last bin
+        mSpecInit = true;
+
+        // Display range
+        static constexpr float kMinDb = -90.f;
+        static constexpr float kMaxDb = 0.f;
+        static constexpr float kDbRange = kMaxDb - kMinDb;
+
+        float sr = 44100.f;
+        if (mProcessor) sr = static_cast<float>(mProcessor->getSampleRate());
+        float nyquist = sr * 0.5f;
+        float logMin = log10f(20.f);
+        float logMax = log10f(nyquist);
+        float logRange = logMax - logMin;
+
+        // Grid: vertical lines at decades + log tick marks at bottom
+        g.setColour(cGrid());
+        for (int decade = 1; decade <= 4; decade++)
+        {
+            for (int m = 1; m <= 9; m++)
+            {
+                float freq = m * powf(10.f, static_cast<float>(decade));
+                if (freq < 20.f || freq > nyquist) continue;
+                float xf = std::round((log10f(freq) - logMin) / logRange * (w - 1));
+                if (xf < 0 || xf >= w) continue;
+                if (m == 1)
+                    g.fillRect(xf, 0.f, 1.f, static_cast<float>(h)); // full line at decades
+                else
+                    g.fillRect(xf, static_cast<float>(h) - kTickH, kTickW, kTickH); // tick mark
+            }
+        }
+
+        // Grid: horizontal lines every 18 dB (skip 0dB top line)
+        for (float db = -18.f; db > kMinDb; db -= 18.f)
+        {
+            if (db > kMaxDb) continue;
+            float yf = (1.f - (db - kMinDb) / kDbRange) * (h - 1);
+            g.setColour(cGrid());
+            g.fillRect(0.f, std::round(yf), static_cast<float>(w), 1.f);
+        }
+
+        if (available < 64) return; // not enough data
+
+        // Draw spectrum as thin path (sub-pixel resolution)
+        auto specYf = [&](float px) -> float {
+            float logF = logMin + px / (w - 1) * logRange;
+            float freq = powf(10.f, logF);
+            float binF = freq / nyquist * numBins;
+            int b0 = std::clamp(static_cast<int>(binF), 0, numBins - 2);
+            float frac = binF - b0;
+            float db = magnitudes[b0] + frac * (magnitudes[b0 + 1] - magnitudes[b0]);
+            db = std::clamp(db, kMinDb - 12.f, kMaxDb);
+            return (1.f - (db - kMinDb) / kDbRange) * (h - 1);
+        };
+
+        juce::Path specPath;
+        float step = 0.5f; // half-pixel steps for smoother curves
+        specPath.startNewSubPath(0.f, specYf(0.f));
+        for (float px = step; px < w; px += step)
+            specPath.lineTo(px, specYf(px));
+
+        g.setColour(bright);
+        g.strokePath(specPath, juce::PathStrokeType(strokeWidth() * 0.67f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+    }
+
+    // ---- ADSR envelope display (single continuous curve, dynamic zoom) ----
+    // Shows Attack + Decay + 1s Sustain hold + Release in one view.
+    // Time axis scales to fit the full envelope. Ticks at bottom, 1/sec.
+    void paintADSR(juce::Graphics& g, int w, int h,
+                   juce::Colour dim, juce::Colour mid, juce::Colour bright)
+    {
+        if (!mProcessor) return;
+
+        auto& dsp = mProcessor->mDSP;
+        bool j6 = (dsp.mSynthModel != kr106::kJ106);
+        float sustain = std::max(mProcessor->getParam(kEnvS)->getValue(), 0.001f);
+
+        static constexpr float kAttackTarget  = 1.2f;
+        static constexpr float kReleaseTarget = -0.1f;
+        static constexpr float kSustainMs     = 1000.f; // 1s sustain hold
+        static constexpr float kThreshold     = 0.01f;  // 1% for "reached" detection
+
+        using ADSR = kr106::ADSR;
+
+        // --- Compute phase durations ---
+        float attackMs = 0.f, decayMs = 0.f, releaseMs = 0.f;
+        float attackCoeff = 0.f, decayCoeff = 0.f, releaseCoeff = 0.f;
+
+        if (j6)
+        {
+            float attackTau  = 0.001500f * expf(11.7382f * dsp.mSliderA - 4.7207f * dsp.mSliderA * dsp.mSliderA);
+            float decayTau   = kr106::ADSR::DecRelTauJ6(dsp.mSliderD);
+            float releaseTau = kr106::ADSR::DecRelTauJ6(dsp.mSliderR);
+
+            attackCoeff  = 1.f - expf(-0.001f / attackTau);
+            decayCoeff   = 1.f - expf(-0.001f / decayTau);
+            releaseCoeff = 1.f - expf(-0.001f / releaseTau);
+
+            // Attack: time for RC charge toward 1.2 to reach 1.0
+            attackMs = -logf(1.f - 1.f / kAttackTarget) / -logf(1.f - attackCoeff);
+            // Decay: time for exponential from 1.0 to within threshold of sustain
+            if (sustain < 1.f - kThreshold)
+                decayMs = logf(kThreshold) / logf(1.f - decayCoeff);
+            // Release: time for exponential from sustain toward -0.1 to reach threshold
+            float relRange = sustain - kReleaseTarget;
+            if (relRange > kThreshold)
+                releaseMs = logf(kThreshold / relRange) / logf(1.f - releaseCoeff);
+        }
+        else
+        {
+            attackMs = ADSR::AttackMs(dsp.mSliderA);
+
+            // Simulate decay to find completion time
+            int decIdx = std::clamp(static_cast<int>(dsp.mSliderD * 127.f + 0.5f), 0, 127);
+            uint16_t decCoeffI = kr106::kDecRelTable[decIdx];
+            uint16_t susI = static_cast<uint16_t>(sustain * ADSR::kEnvMax);
+            {
+                uint16_t diff = ADSR::kEnvMax - susI;
+                int ticks = 0;
+                while (diff > static_cast<uint16_t>(ADSR::kEnvMax * kThreshold) && ticks < 50000)
+                {
+                    diff = ADSR::CalcDecay(diff, decCoeffI);
+                    ticks++;
+                }
+                decayMs = ticks * 1000.f / ADSR::kTickRate;
+            }
+
+            // Simulate release to find completion time
+            int relIdx = std::clamp(static_cast<int>(dsp.mSliderR * 127.f + 0.5f), 0, 127);
+            uint16_t relCoeffI = kr106::kDecRelTable[relIdx];
+            {
+                uint16_t envI = susI;
+                int ticks = 0;
+                while (envI > static_cast<uint16_t>(ADSR::kEnvMax * kThreshold) && ticks < 50000)
+                {
+                    envI = ADSR::CalcDecay(envI, relCoeffI);
+                    ticks++;
+                }
+                releaseMs = ticks * 1000.f / ADSR::kTickRate;
+            }
+        }
+
+        float totalMs = attackMs + decayMs + kSustainMs + releaseMs;
+        float windowMs = std::max(500.f, totalMs);
+
+        // Phase boundary positions in ms
+        float msAD   = attackMs;                          // attack -> decay
+        float msDS   = attackMs + decayMs;                // decay -> sustain hold
+        float msSR   = attackMs + decayMs + kSustainMs;   // sustain -> release
+
+        // --- Bottom tick marks (1 per second) ---
+        g.setColour(cGrid());
+        int numSecs = static_cast<int>(windowMs / 1000.f);
+        for (int s = 1; s <= numSecs; s++)
+        {
+            float tx = std::round(s * 1000.f / windowMs * (w - 1));
+            if (tx > 0.f && tx < w)
+                g.fillRect(tx, static_cast<float>(h - 3), 1.f, 3.f);
+        }
+
+        // Phase boundary lines (full height, grid color)
+        auto drawBoundary = [&](float ms) {
+            float x = std::round(ms / windowMs * (w - 1));
+            if (x > 0.f && x < w - 1)
+                g.fillRect(x, 0.f, 1.f, static_cast<float>(h));
+        };
+        drawBoundary(msAD);
+        drawBoundary(msDS);
+        drawBoundary(msSR);
+
+        // Cache boundaries for interactive drag hit-testing
+        mAdsrBoundAD = msAD / windowMs;
+        mAdsrBoundDS = msDS / windowMs;
+        mAdsrBoundSR = msSR / windowMs;
+        mAdsrBoundEnd = (msSR + releaseMs) / windowMs;
+        mAdsrSustainY = 1.f - sustain;
+
+        // --- Evaluate envelope at a given ms offset from note-on ---
+        if (j6)
+        {
+            auto evalJ6 = [&](float ms) -> float
+            {
+                if (ms < msAD)
+                {
+                    float env = kAttackTarget * (1.f - powf(1.f - attackCoeff, ms));
+                    return std::min(env, 1.f);
+                }
+                if (ms < msDS)
+                    return sustain + (1.f - sustain) * powf(1.f - decayCoeff, ms - msAD);
+                if (ms < msSR)
+                    return sustain;
+                float t = ms - msSR;
+                float env = kReleaseTarget + (sustain - kReleaseTarget) * powf(1.f - releaseCoeff, t);
+                return std::max(env, 0.f);
+            };
+
+            auto msToY = [&](float ms) -> float {
+                return 1.f + (1.f - std::clamp(evalJ6(ms), 0.f, 1.f)) * (h - 3);
+            };
+            auto msToX = [&](float ms) -> float {
+                return ms / windowMs * (w - 1);
+            };
+
+            juce::Path envPath;
+            envPath.startNewSubPath(0.f, msToY(0.f));
+            // Uniform samples plus explicit keypoints at phase boundaries
+            float keypoints[] = { msAD, msDS, msSR };
+            int ki = 0;
+            for (float px = 0.5f; px < w; px += 0.5f)
+            {
+                float ms = (px / (w - 1)) * windowMs;
+                // Insert keypoints that fall before this px
+                while (ki < 3 && msToX(keypoints[ki]) <= px)
+                {
+                    envPath.lineTo(msToX(keypoints[ki]), msToY(keypoints[ki]));
+                    ki++;
+                }
+                envPath.lineTo(px, msToY(ms));
+            }
+            g.setColour(bright);
+            g.strokePath(envPath, juce::PathStrokeType(strokeWidth(), juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+        }
+        else
+        {
+            // J106: simulate full ADSR as one continuous curve
+            int decIdx = std::clamp(static_cast<int>(dsp.mSliderD * 127.f + 0.5f), 0, 127);
+            int relIdx = std::clamp(static_cast<int>(dsp.mSliderR * 127.f + 0.5f), 0, 127);
+            uint16_t atkInc   = ADSR::AttackIncFromSlider(dsp.mSliderA);
+            uint16_t decCoeffI = kr106::kDecRelTable[decIdx];
+            uint16_t relCoeffI = kr106::kDecRelTable[relIdx];
+            uint16_t susI = static_cast<uint16_t>(sustain * ADSR::kEnvMax);
+
+            int maxTicks = static_cast<int>(windowMs * ADSR::kTickRate / 1000.f) + 2;
+            int sustainStartTick = static_cast<int>(msDS * ADSR::kTickRate / 1000.f);
+            int sustainEndTick   = static_cast<int>(msSR * ADSR::kTickRate / 1000.f);
+
+            std::vector<float> curve(maxTicks + 1);
+            uint16_t envI = 0;
+            bool attacking = true;
+            bool inSustainHold = false;
+            for (int t = 0; t <= maxTicks; t++)
+            {
+                curve[t] = static_cast<float>(envI) / ADSR::kEnvMax;
+
+                if (t >= sustainEndTick)
+                {
+                    // Release phase
+                    envI = ADSR::CalcDecay(envI, relCoeffI);
+                }
+                else if (t >= sustainStartTick)
+                {
+                    // Sustain hold (1s) -- stay at sustain level
+                    envI = susI;
+                }
+                else if (attacking)
+                {
+                    uint32_t sum = static_cast<uint32_t>(envI) + atkInc;
+                    if (sum >= ADSR::kEnvMax) { envI = ADSR::kEnvMax; attacking = false; }
+                    else envI = static_cast<uint16_t>(sum);
+                }
+                else
+                {
+                    // Decay toward sustain
+                    if (envI > susI)
+                    {
+                        uint16_t diff = envI - susI;
+                        diff = ADSR::CalcDecay(diff, decCoeffI);
+                        envI = diff + susI;
+                    }
+                    else
+                        envI = susI;
+                }
+            }
+
+            // Draw (interpolated between ticks, smooth 2px path)
+            auto envAtPx = [&](float px) -> float {
+                float ms = (px / (w - 1)) * windowMs;
+                float tickF = ms * ADSR::kTickRate / 1000.f;
+                int t0 = std::min(static_cast<int>(tickF), maxTicks - 1);
+                float frac = tickF - t0;
+                float env = curve[t0] + (curve[t0 + 1] - curve[t0]) * frac;
+                return 1.f + (1.f - std::clamp(env, 0.f, 1.f)) * (h - 3);
+            };
+
+            auto msToX106 = [&](float ms) -> float {
+                return ms / windowMs * (w - 1);
+            };
+
+            juce::Path envPath;
+            envPath.startNewSubPath(0.f, envAtPx(0.f));
+            // Explicit keypoints at phase boundaries
+            float keypoints106[] = { msAD, msDS, msSR };
+            int ki106 = 0;
+            for (float px = 0.5f; px < w; px += 0.5f)
+            {
+                while (ki106 < 3 && msToX106(keypoints106[ki106]) <= px)
+                {
+                    float kx = msToX106(keypoints106[ki106]);
+                    envPath.lineTo(kx, envAtPx(kx));
+                    ki106++;
+                }
+                envPath.lineTo(px, envAtPx(px));
+            }
+            g.setColour(bright);
+            g.strokePath(envPath, juce::PathStrokeType(strokeWidth(), juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+        }
+    }
+
+    // ---- VCF frequency response display ----
+    // Analytically evaluates the 4-pole cascade + feedback transfer function:
+    //   |H(f)|² = 1 / ((1+x²)⁴ + 2k·(1+x²)²·cos(4·atan(x)) + k²)
+    // where x = f/fc, fc = individual pole frequency (= self-oscillation freq).
+    void paintVCF(juce::Graphics& g, int w, int h,
+                  juce::Colour dim, juce::Colour mid, juce::Colour bright)
+    {
+        if (!mProcessor) return;
+
+        auto& dsp = mProcessor->mDSP;
+        bool j106 = (dsp.mSynthModel == kr106::kJ106);
+
+        float slider = dsp.mSliderVcfFreq;
+        float fc;
+        if (j106)
+        {
+            uint16_t cutoffInt = static_cast<uint16_t>(slider * 0x3F80);
+            fc = kr106::dacToHz(cutoffInt);
+        }
+        else
+            fc = kr106::j6_vcf_freq_from_slider(slider);
+
+        float res = mProcessor->getParam(kVcfRes)->getValue();
+        float k = j106 ? kr106::VCF::ResK_J106(res) : kr106::VCF::ResK_J6(res);
+        k = kr106::VCF::SoftClipK(k);
+
+        float fcSlider = fc;
+        float sr = static_cast<float>(mProcessor->getSampleRate());
+        float nyq = std::max(sr * 0.5f, 1.f);
+
+        // Display range
+        static constexpr float kMinHz = 5.f;
+        static constexpr float kMaxHz = 50000.f;
+        static constexpr float kMinDb = -48.f;
+        static constexpr float kMaxDb = 24.f;
+        static constexpr float kDbRange = kMaxDb - kMinDb;
+        float logMin = log10f(kMinHz);
+        float logMax = log10f(kMaxHz);
+        float logRange = logMax - logMin;
+
+        // Grid: vertical lines at decades + log tick marks at bottom
+        g.setColour(cGrid());
+        for (int decade = 0; decade <= 4; decade++)
+        {
+            for (int m = 1; m <= 9; m++)
+            {
+                float freq = m * powf(10.f, static_cast<float>(decade));
+                if (freq < kMinHz || freq > kMaxHz) continue;
+                float xf = std::round((log10f(freq) - logMin) / logRange * (w - 1));
+                if (xf < 0 || xf >= w) continue;
+                if (m == 1)
+                    g.fillRect(xf, 0.f, 1.f, static_cast<float>(h));
+                else
+                    g.fillRect(xf, static_cast<float>(h) - kTickH, kTickW, kTickH);
+            }
+        }
+
+        // Grid: horizontal lines every 12 dB
+        for (float db = kMinDb + 12.f; db < kMaxDb; db += 12.f)
+        {
+            float yf = (1.f - (db - kMinDb) / kDbRange) * (h - 1);
+            g.setColour(db == 0.f ? dim : cGrid());
+            g.fillRect(0.f, std::round(yf), static_cast<float>(w), 1.f);
+        }
+
+        // Cutoff frequency marker
+        if (fcSlider >= kMinHz && fcSlider <= kMaxHz)
+        {
+            g.setColour(dim);
+            float xfc = (log10f(fcSlider) - logMin) / logRange * (w - 1);
+            g.fillRect(std::round(xfc), 0.f, 1.f, static_cast<float>(h));
+        }
+
+        // Evaluate and draw magnitude response (normalized to 0 dB at DC)
+        // Transfer function for a 4-pole cascade with feedback k:
+        //   H(s) = 1 / ((1 + s/wc)^4 + k)
+        // In normalized frequency (x = f/fc):
+        //   |H|² = 1 / ((1+x²)⁴ + 2k(1+x²)²cos(4·atan(x)) + k²)
+        float k2 = k * k;
+
+        // Normalize to 0 dB at DC: denominator at x=0 is (1 + k)^2 for |H|^2
+        // (cos(0) = 1, p2=1, p4=1, p8=1 → denom = 1 + 2k + k^2 = (1+k)^2)
+        float dcDenomSq = (1.f + k) * (1.f + k);
+
+        auto evalDb = [&](float px) -> float {
+            float logF = logMin + px / (w - 1) * logRange;
+            float freq = powf(10.f, logF);
+            float x = freq / fc;
+            float x2 = x * x;
+            float p2 = 1.f + x2;
+            float p4 = p2 * p2;
+            float p8 = p4 * p4;
+            float theta4 = 4.f * atanf(x);
+            float denomSq = p8 + 2.f * k * p4 * cosf(theta4) + k2;
+            float magSq = dcDenomSq / denomSq; // normalized to 0 dB at DC
+            float db = 10.f * log10f(std::max(magSq, 1e-12f));
+            return std::clamp(db, kMinDb - 12.f, kMaxDb);
+        };
+
+        auto dbToY = [&](float db) -> float {
+            return (1.f - (db - kMinDb) / kDbRange) * (h - 1);
+        };
+
+        juce::Path vcfPath;
+        float step = 0.5f;
+        vcfPath.startNewSubPath(0.f, dbToY(evalDb(0.f)));
+        for (float px = step; px < w; px += step)
+            vcfPath.lineTo(px, dbToY(evalDb(px)));
+
+        g.setColour(bright);
+        g.strokePath(vcfPath, juce::PathStrokeType(strokeWidth(), juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+
+        mNavVcfHz = fcSlider;
+    }
+
+    // ---- Frequency counter (zero-crossing measurement) ----
+    void paintFreqCounter(juce::Graphics& g, int w, int h,
+                          juce::Colour dim, juce::Colour /*mid*/, juce::Colour bright)
+    {
+        if (!mProcessor || mSamplesAvail < 2) return;
+
+        float sr = static_cast<float>(mProcessor->getSampleRate());
+        if (sr <= 0.f) return;
+
+        // Scan for positive-going zero crossings.
+        // Accumulate total elapsed samples and cycle count over a measurement
+        // window, then compute frequency from the aggregate.
+        for (int i = 1; i < mSamplesAvail; i++)
+        {
+            int idx0 = (mRingWritePos - mSamplesAvail + i - 1 + RING_SIZE) % RING_SIZE;
+            int idx1 = (idx0 + 1) % RING_SIZE;
+            float s0 = mRing[idx0];
+            float s1 = mRing[idx1];
+
+            mFreqWindowSamples++;
+
+            if (s0 <= 0.f && s1 > 0.f)
+            {
+                float frac = -s0 / (s1 - s0);
+
+                if (mHadPriorCross)
+                {
+                    mFreqCycles++;
+                    if (mFreqCycles == 1)
+                        mFreqWindowStart = mFreqWindowSamples - 1.f + frac;
+                    mFreqWindowEnd = mFreqWindowSamples - 1.f + frac;
+                }
+
+                mHadPriorCross = true;
+            }
+        }
+
+        // Update frequency estimate when we have enough cycles
+        if (mFreqCycles >= kFreqMinCycles && mFreqWindowEnd > mFreqWindowStart)
+        {
+            float totalSamples = mFreqWindowEnd - mFreqWindowStart;
+            mFreqSmooth = sr * mFreqCycles / totalSamples;
+            mFreqCycles = 0;
+            mFreqWindowSamples = 0;
+            mFreqWindowStart = 0.f;
+            mFreqWindowEnd = 0.f;
+        }
+        // Reset if window gets too long without enough crossings (silence)
+        else if (mFreqWindowSamples > sr)
+        {
+            mFreqSmooth = 0.f;
+            mFreqCycles = 0;
+            mFreqWindowSamples = 0;
+            mFreqWindowStart = 0.f;
+            mFreqWindowEnd = 0.f;
+            mHadPriorCross = false;
+        }
+
+        // Format display
+        juce::String line1, line2;
+        if (mFreqSmooth > 1.f)
+        {
+            line1 = juce::String(mFreqSmooth, 1) + " Hz";
+
+            // MIDI note + cents
+            float midiNote = 69.f + 12.f * log2f(mFreqSmooth / 440.f);
+            int noteInt = juce::roundToInt(midiNote);
+            float cents = (midiNote - noteInt) * 100.f;
+            static const char* noteNames[] = {"C","C#","D","D#","E","F","F#","G","G#","A","A#","B"};
+            int noteName = ((noteInt % 12) + 12) % 12;
+            int octave = (noteInt / 12) - 1;
+            char centsStr[16];
+            snprintf(centsStr, sizeof(centsStr), "%+.0f", cents);
+            line2 = juce::String(noteNames[noteName]) + juce::String(octave) + " " + juce::String(centsStr) + "c";
+        }
+        else
+        {
+            line1 = "---";
+            line2 = "";
+        }
+
+        // Draw centered text
+        auto font = juce::Font(juce::FontOptions()
+            .withMetricsKind(juce::TypefaceMetricsKind::legacy)).withHeight(10.f);
+        g.setFont(font);
+        g.setColour(bright);
+        g.drawText(line1, 0, h / 2 - 14, w, 14, juce::Justification::centred);
+        g.drawText(line2, 0, h / 2 + 2, w, 14, juce::Justification::centred);
+    }
+
+    // ---- Build rasterized path for about screen (done once per resize) ----
+    void buildAboutPath(int w, int h)
+    {
+        if (w == mAboutW && h == mAboutH && !mAboutPath.empty()) return;
+        mAboutW = w;
+        mAboutH = h;
+        mAboutPath.clear();
+
+        std::vector<bool> visited(w * h, false);
+
+        auto addPixel = [&](int px, int py) {
+            if (px >= 0 && px < w && py >= 0 && py < h && !visited[py * w + px]) {
+                visited[py * w + px] = true;
+                mAboutPath.push_back({static_cast<int16_t>(px), static_cast<int16_t>(py)});
+            }
+        };
+
+        auto rasterLine = [&](float x0f, float y0f, float x1f, float y1f) {
+            int x0 = static_cast<int>(std::round(x0f)), y0 = static_cast<int>(std::round(y0f));
+            int x1 = static_cast<int>(std::round(x1f)), y1 = static_cast<int>(std::round(y1f));
+            int dx = std::abs(x1 - x0), dy = std::abs(y1 - y0);
+            int sx = x0 < x1 ? 1 : -1, sy = y0 < y1 ? 1 : -1;
+            int err = dx - dy;
+            while (true) {
+                addPixel(x0, y0);
+                if (x0 == x1 && y0 == y1) break;
+                int e2 = 2 * err;
+                if (e2 > -dy) { err -= dy; x0 += sx; }
+                if (e2 < dx) { err += dx; y0 += sy; }
+            }
+        };
+
+        // Vector stroke font — 4×6 grid per glyph, {-1,-1} = pen-up
+        struct P { int8_t x, y; };
+        static constexpr P PU {-1, -1};
+        static constexpr P cA[] = {{0,6},{0,0},{4,0},{4,6},PU,{0,3},{4,3}};
+        static constexpr P cE[] = {{4,0},{0,0},{0,6},{4,6},PU,{0,3},{3,3}};
+        static constexpr P cK[] = {{0,0},{0,6},PU,{4,0},{0,3},{4,6}};
+        static constexpr P cL[] = {{0,0},{0,6},{4,6}};
+        static constexpr P cM[] = {{0,6},{0,0},{2,3},{4,0},{4,6}};
+        static constexpr P cR[] = {{0,6},{0,0},{4,0},{4,3},{0,3},PU,{0,3},{4,6}};
+        static constexpr P cS[] = {{4,0},{0,0},{0,3},{4,3},{4,6},{0,6}};
+        static constexpr P cT[] = {{0,0},{4,0},PU,{2,0},{2,6}};
+        static constexpr P cU[] = {{0,0},{0,6},{4,6},{4,0}};
+        static constexpr P cV[] = {{0,0},{2,6},{4,0}};
+        static constexpr P c0[] = {{0,0},{4,0},{4,6},{0,6},{0,0}};
+        static constexpr P c1[] = {{1,1},{2,0},{2,6}};
+        static constexpr P c2[] = {{0,0},{4,0},{4,3},{0,3},{0,6},{4,6}};
+        static constexpr P c3[] = {{0,0},{4,0},{4,3},{1,3},PU,{4,3},{4,6},{0,6}};
+        static constexpr P c4[] = {{0,0},{0,3},{4,3},PU,{4,0},{4,6}};
+        static constexpr P c5[] = {{4,0},{0,0},{0,3},{4,3},{4,6},{0,6}};
+        static constexpr P c6[] = {{4,0},{0,0},{0,6},{4,6},{4,3},{0,3}};
+        static constexpr P c7[] = {{0,0},{4,0},{2,6}};
+        static constexpr P c8[] = {{0,0},{4,0},{4,6},{0,6},{0,0},PU,{0,3},{4,3}};
+        static constexpr P c9[] = {{0,6},{4,6},{4,0},{0,0},{0,3},{4,3}};
+        static constexpr P cDash[] = {{1,3},{3,3}};
+        static constexpr P cDot[]  = {{2,5},{2,6}};
+
+        struct Glyph { char ch; const P* pts; int n; };
+        const Glyph glyphs[] = {
+            {'A',cA,7}, {'E',cE,7}, {'K',cK,6}, {'L',cL,3}, {'M',cM,5},
+            {'R',cR,8}, {'S',cS,6}, {'T',cT,5}, {'U',cU,4}, {'V',cV,3},
+            {'0',c0,5}, {'1',c1,3}, {'2',c2,6}, {'3',c3,8}, {'4',c4,6},
+            {'5',c5,6}, {'6',c6,6}, {'7',c7,3}, {'8',c8,8}, {'9',c9,6},
+            {'-',cDash,2}, {'.',cDot,2},
+        };
+
+        auto traceStr = [&](const char* str, float cx, float cy, float glyphH) {
+            float glyphW = glyphH * (4.f / 6.f);
+            float space  = glyphW * 1.5f;
+            int len = static_cast<int>(strlen(str));
+            float x0 = cx - (len * space - (space - glyphW)) * 0.5f;
+            for (int i = 0; i < len; i++) {
+                if (str[i] == ' ') continue;
+                const Glyph* gl = nullptr;
+                for (auto& gg : glyphs)
+                    if (gg.ch == str[i]) { gl = &gg; break; }
+                if (!gl) continue;
+                float ox = x0 + i * space;
+                float oy = cy;
+                float sx = glyphW / 4.f, sy = glyphH / 6.f;
+                for (int j = 1; j < gl->n; j++) {
+                    if (gl->pts[j].x < 0 || gl->pts[j-1].x < 0) continue;
+                    rasterLine(ox + gl->pts[j-1].x * sx, oy + gl->pts[j-1].y * sy,
+                              ox + gl->pts[j].x * sx,   oy + gl->pts[j].y * sy);
+                }
+            }
+        };
+
+        float cx = w * 0.5f;
+        float titleH = h * 0.15f;
+        traceStr("ULTRAMASTER", cx, h * 0.15f, titleH);
+        traceStr("KR-106", cx, h * 0.40f, titleH);
+        juce::String ver = juce::String("V") + JucePlugin_VersionString;
+        traceStr(ver.toRawUTF8(), cx, h * 0.70f, h * 0.10f);
+    }
+
+    // ---- Patch bank (128 squares in 16x8 grid + nav buttons) ----
+    void paintPatchBank(juce::Graphics& g, int w, int h,
+                        juce::Colour dim, juce::Colour mid, juce::Colour bright)
+    {
+        if (!mProcessor) return;
+
+        int num = mProcessor->getNumPrograms();
+        int cur = mProcessor->getCurrentProgram();
+
+        // Current patch cell (drawn first, grid lines on top for clean edges)
+        if (cur >= 0 && cur < num)
+        {
+            int cc = cur % kPBCols, cr = cur / kPBCols;
+            g.setColour(bright);
+            g.fillRect(cc * kPBCell, cr * kPBCell, kPBCell + 1, kPBCell + 1);
+        }
+
+        // Grid lines (on top of fill)
+        g.setColour(cGrid());
+        for (int c = 1; c < kPBCols; c++)
+            g.fillRect(c * kPBCell, 0, 1, kPBGridH);
+        for (int r = 1; r <= kPBRows; r++)
+            g.fillRect(0, r * kPBCell, kPBCols * kPBCell, 1);
+        // Outer edges
+        g.fillRect(0, 0, kPBCols * kPBCell, 1);
+        g.fillRect(0, 0, 1, kPBGridH);
+
+        // Drag vector (Bresenham on grid)
+        if (mDragging)
+        {
+            int c0 = mDragOriginX / kPBCell, r0 = mDragOriginY / kPBCell;
+            int c1 = std::clamp(mDragEndX / kPBCell, 0, kPBCols - 1);
+            int r1 = std::clamp(mDragEndY / kPBCell, 0, kPBRows - 1);
+            int dx = std::abs(c1 - c0), dy = -std::abs(r1 - r0);
+            int sx = c0 < c1 ? 1 : -1, sy = r0 < r1 ? 1 : -1;
+            int err = dx + dy;
+            g.setColour(mid);
+            for (;;)
+            {
+                int idx = r0 * kPBCols + c0;
+                if (idx != cur)
+                    g.fillRect(c0 * kPBCell + 1, r0 * kPBCell + 1, kPBCell - 1, kPBCell - 1);
+                if (c0 == c1 && r0 == r1) break;
+                int e2 = 2 * err;
+                if (e2 >= dy) { err += dy; c0 += sx; }
+                if (e2 <= dx) { err += dx; r0 += sy; }
+            }
+        }
+
+    }
+
+    // ---- About / version display (oscilloscope beam trace with phosphor decay) ----
+    void paintAbout(juce::Graphics& g, int w, int h,
+                    juce::Colour dim, juce::Colour /*mid*/, juce::Colour /*bright*/)
+    {
+        buildAboutPath(w, h);
+
+        paintCrosshairs(g, w, h, dim);
+
+        int totalPx = static_cast<int>(mAboutPath.size());
+        if (totalPx == 0) return;
+
+        // Start timer on first paint after entering about mode
+        float now = juce::Time::getMillisecondCounter() * 0.001f;
+        if (!mAboutActive) { mAboutStartTime = now; mAboutActive = true; }
+        float t = now - mAboutStartTime;
+
+        // Continuous loop: beam wraps, no clearing. All pixels always drawn.
+        // Brightness based on distance behind the beam (wrapping around).
+        static constexpr float kDrawSec = 3.0f;
+        float phase = std::fmod(t, kDrawSec);
+        int beamIdx = static_cast<int>(phase / kDrawSec * totalPx);
+
+        for (int i = 0; i < totalPx; i++)
+        {
+            // Wrapped distance behind the beam head
+            int dist = (beamIdx - i + totalPx) % totalPx;
+
+            // Fade from 1.0 at beam to 0.1 at max distance (opposite side)
+            float glow = 1.0f - 0.9f * static_cast<float>(dist) / static_cast<float>(totalPx);
+
+            g.setColour(juce::Colour(static_cast<uint8_t>(0),
+                                     static_cast<uint8_t>(glow * 255),
+                                     static_cast<uint8_t>(0)));
+            g.fillRect(static_cast<float>(mAboutPath[i].x),
+                       static_cast<float>(mAboutPath[i].y), 1.f, 1.f);
+        }
+
+        // Beam dot: pure white center, grey bloom
+        {
+            int bx = mAboutPath[beamIdx % totalPx].x;
+            int by = mAboutPath[beamIdx % totalPx].y;
+            g.setColour(juce::Colour(static_cast<uint8_t>(128),
+                                     static_cast<uint8_t>(128),
+                                     static_cast<uint8_t>(128)));
+            g.fillRect(static_cast<float>(bx - 1), static_cast<float>(by - 1), 3.f, 3.f);
+            g.setColour(juce::Colour(static_cast<uint8_t>(255),
+                                     static_cast<uint8_t>(255),
+                                     static_cast<uint8_t>(255)));
+            g.fillRect(static_cast<float>(bx), static_cast<float>(by), 1.f, 1.f);
+        }
+    }
+
+    // ---- Nav bar (shared across all modes) ----
+    void paintNavBar(juce::Graphics& g, int w, int h, int contentH, juce::Colour dim)
+    {
+        int navY = contentH;
+        int navH = h - navY;
+        int arrowW = navH; // square buttons
+
+        // Top border
+        g.setColour(cGrid());
+        g.fillRect(0, navY, w, 1);
+
+        // Vertical dividers
+        g.fillRect(arrowW, navY, 1, navH);
+        g.fillRect(w - arrowW, navY, 1, navH);
+
+        // Hover highlight
+        if (mNavHover >= 0)
+        {
+            g.setColour(juce::Colour(0, 40, 0));
+            if (mNavHover == 0)
+                g.fillRect(0, navY + 1, arrowW, navH - 1);
+            else
+                g.fillRect(w - arrowW + 1, navY + 1, arrowW - 1, navH - 1);
+        }
+
+        // < arrow
+        g.setColour(dim);
+        float ay = navY + navH * 0.5f + 0.5f;
+        float axL = arrowW * 0.5f - 1.f;
+        g.drawLine(axL + 2.f, ay - 3.f, axL - 1.f, ay, 1.f);
+        g.drawLine(axL - 1.f, ay, axL + 2.f, ay + 3.f, 1.f);
+
+        // > arrow
+        float axR = w - arrowW * 0.5f + 1.f;
+        g.drawLine(axR - 2.f, ay - 3.f, axR + 1.f, ay, 1.f);
+        g.drawLine(axR + 1.f, ay, axR - 2.f, ay + 3.f, 1.f);
+
+        // Center label (Segment14 LED font if available)
+        juce::String label = navLabel();
+        g.setColour(dim);
+        if (mTypeface)
+            g.setFont(juce::Font(juce::FontOptions(mTypeface)
+                .withMetricsKind(juce::TypefaceMetricsKind::legacy)).withHeight(6.f));
+        else
+            g.setFont(juce::FontOptions(6.f));
+        g.drawText(label, arrowW, navY + 1, w - arrowW * 2, navH, juce::Justification::centred);
+    }
+
+    juce::String navLabel() const
+    {
+        switch (mScaleIdx)
+        {
+            case 0: {
+                if (mNavPeakDb > -100.f)
+                {
+                    juce::String db = juce::String(juce::roundToInt(mNavPeakDb)) + "dB";
+                    return "WAVEFORM " + db.paddedLeft(' ', 6);
+                }
+                return "WAVEFORM";
+            }
+            case 1: {
+                if (mNavPeakDb > -100.f)
+                {
+                    juce::String db = juce::String(juce::roundToInt(mNavPeakDb)) + "dB";
+                    return "SPECTROGRAPH " + db.paddedLeft(' ', 6);
+                }
+                return "SPECTROGRAPH";
+            }
+            case 2: return "ADSR ENVELOPE";
+            case 3: {
+                if (mNavVcfHz > 0.f)
+                {
+                    juce::String hz;
+                    if (mNavVcfHz >= 1000.f)
+                        hz = juce::String(juce::roundToInt(mNavVcfHz / 1000.f)) + "kHz";
+                    else
+                        hz = juce::String(juce::roundToInt(mNavVcfHz)) + "Hz";
+                    return "VCF " + hz.paddedLeft(' ', 7);
+                }
+                return "VCF";
+            }
+            case 4: return "PATCH BANK";
+            case 5: return "ABOUT";
+            default: return "";
+        }
+    }
+
+    float mNavPeakDb = -100.f;  // cached from waveform paint
+    float mNavVcfHz = 0.f;      // cached from VCF paint
+
+    int mNavHover = -1; // 0=left arrow, 1=right arrow, -1=none
+
+    // Interactive scope drag state
+    enum { kDragNone, kDragWaveform, kDragVCF, kDragADSR };
+    int mScopeDragMode = kDragNone;
+    float mDragStartVal[2] = {};
+    int mAdsrDragParam = kEnvA;
+    // ADSR boundary positions (normalized 0-1), cached by paintADSR
+    float mAdsrBoundAD = 0.f, mAdsrBoundDS = 0.f, mAdsrBoundSR = 0.f;
+    float mAdsrBoundEnd = 1.f;  // release end position, cached by paintADSR
+    float mAdsrSustainY = 0.5f; // normalized Y of sustain level, cached by paintADSR
+
+    // Hit-test ADSR targets. Returns param index or -1.
+    // Vertical lines (A/D/R boundaries) use left/right drag.
+    // Sustain horizontal segment uses up/down drag.
+    int adsrHitTest(float xNorm, float yNorm, float hitZone) const
+    {
+        // Check vertical boundary lines first
+        if (fabsf(xNorm - mAdsrBoundAD) < hitZone) return kEnvA;
+        if (fabsf(xNorm - mAdsrBoundDS) < hitZone) return kEnvD;
+        // Release: near the SR boundary line (3rd line)
+        if (fabsf(xNorm - mAdsrBoundSR) < hitZone) return kEnvR;
+        // Sustain: horizontal line between DS and SR boundaries
+        if (xNorm > mAdsrBoundDS + hitZone && xNorm < mAdsrBoundSR - hitZone
+            && fabsf(yNorm - mAdsrSustainY) < hitZone * 3.f)
+            return kEnvS;
+        return -1;
+    }
+
+    static constexpr int kNumModes = 6; // 0: waveform, 1: spectrum, 2: ADSR, 3: VCF, 4: patch bank, 5: about
+    int mScaleIdx = 0;
+    int mPrePatchBankMode = 0; // mode to return to when toggling patch bank off
+    int mPatchBankHover = -1;  // hovered patch index, or -1
+
+    // Bouncing ball state
+    bool  mBallActive = false;
+    int   mBallCellX = 0, mBallCellY = 0; // current cell position
+    float mBallDX = 0.f, mBallDY = 0.f;   // direction (for Bresenham + bounce)
+    float mBallSpeed = 0.f;                // cells per tick
+    float mBallAccum = 0.f;                // fractional step accumulator
+    float mBallErrX = 0.f, mBallErrY = 0.f; // Bresenham error terms
+
+    // Drag-to-launch state
+    bool mDragging = false;
+    int  mDragOriginX = 0, mDragOriginY = 0; // center of clicked cell (pixels)
+    int  mDragEndX = 0, mDragEndY = 0;       // current mouse position (pixels)
+
+    KR106AudioProcessor* mProcessor = nullptr;
+    juce::Typeface::Ptr mTypeface;
+
+    // Local ring buffers (copied from processor)
+    float mRing[RING_SIZE] = {};
+    float mRingR[RING_SIZE] = {};
+    float mSyncRing[RING_SIZE] = {};
+    int mRingWritePos = 0;
+    int mLocalReadPos = 0;
+    int mSamplesAvail = 0;
+
+    // Display buffer (one extracted period)
+    float mDisplay[RING_SIZE] = {};
+    float mDisplayR[RING_SIZE] = {};
+    int mDisplayLen = 0;
+    bool mHasData = false;
+
+    // Clip indicator hold (bright green for ~1 second after clipping)
+
+    // About screen beam trace state
+    struct AboutPixel { int16_t x, y; };
+    std::vector<AboutPixel> mAboutPath;
+    int mAboutW = 0, mAboutH = 0;
+    float mAboutStartTime = 0.f;
+    bool mAboutActive = false;
+
+    // Spectrum analyzer cached state (avoid per-frame allocation)
+    static constexpr int kFFTOrder = 12;
+    static constexpr int kFFTSize = 1 << kFFTOrder;
+    static constexpr float kSpecSmooth = 0.7f; // temporal smoothing (0=no smooth, 0.9=very slow)
+    juce::dsp::FFT mFFT { kFFTOrder };
+    float mHannWindow[1 << 12] = {};
+    float mFFTData[(1 << 12) * 2] = {};
+    float mSmoothedSpec[1 << 11] = {}; // smoothed magnitude in dB (kFFTSize/2 bins)
+    bool mHannInit = false;
+    bool mSpecInit = false;
+
+    void ensureHannWindow()
+    {
+        if (mHannInit) return;
+        for (int i = 0; i < kFFTSize; i++)
+            mHannWindow[i] = 0.5f * (1.f - cosf(juce::MathConstants<float>::twoPi * i / (kFFTSize - 1)));
+        mHannInit = true;
+    }
+
+    // Frequency counter state — accumulates cycles over a window
+    static constexpr int kFreqMinCycles = 16;
+    float mFreqSmooth = 0.f;
+    int mFreqCycles = 0;
+    int mFreqWindowSamples = 0;
+    float mFreqWindowStart = 0.f;
+    float mFreqWindowEnd = 0.f;
+    bool mHadPriorCross = false;
+
+    // Cached param snapshot for ADSR/VCF modes — only repaint when values change
+    uint64_t mParamHash = 0;
+
+    void repaintIfParamsChanged()
+    {
+        if (!mProcessor) return;
+        auto& dsp = mProcessor->mDSP;
+
+        // Pack relevant floats into a simple hash via bit representation
+        auto fbits = [](float f) { uint32_t u; std::memcpy(&u, &f, 4); return u; };
+
+        uint64_t h = 0;
+        if (mScaleIdx == 2) // ADSR
+        {
+            h = fbits(dsp.mSliderA) ^ (static_cast<uint64_t>(fbits(dsp.mSliderD)) << 16)
+              ^ (static_cast<uint64_t>(fbits(dsp.mSliderR)) << 32)
+              ^ (static_cast<uint64_t>(fbits(mProcessor->getParam(kEnvS)->getValue())) << 8)
+              ^ static_cast<uint64_t>(dsp.mSynthModel);
+        }
+        else // VCF (mScaleIdx == 3)
+        {
+            h = fbits(dsp.mSliderVcfFreq)
+              ^ (static_cast<uint64_t>(fbits(mProcessor->getParam(kVcfRes)->getValue())) << 32)
+              ^ static_cast<uint64_t>(dsp.mSynthModel);
+        }
+
+        if (h != mParamHash)
+        {
+            mParamHash = h;
+            repaint();
+        }
+    }
+};
