@@ -4,6 +4,7 @@
 #include <juce_audio_processors/juce_audio_processors.h>
 
 #include "KR106Tooltip.h"
+#include "KR106Touch.h"
 #include "PluginProcessor.h"
 
 // Pixel-perfect vertical fader — port of KR106SliderControl from iPlug2.
@@ -154,10 +155,10 @@ public:
     // Cumulative gearing: shift only affects new movement
     // Scale by display DPI so non-retina screens get the same physical throw
     float dpiScale = std::max(1.f, static_cast<float>(getTopLevelComponent()->getDesktopScaleFactor()));
-    float gearing = 127.f;
+    float gearing = kr106touch::kEnabled ? kr106touch::kSliderThrow : 127.f;
     if (e.mods.isCommandDown()) gearing *= 100.f;       // Cmd/Ctrl = superfine
     else if (e.mods.isShiftDown()) gearing *= 10.f;     // Shift = fine
-    gearing /= dpiScale;
+    if (!kr106touch::kEnabled) gearing /= dpiScale;
     mAccumVal = juce::jlimit(0.f, 1.f, mAccumVal + -increment / gearing);
     float newVal = mAccumVal;
     mParam->setValueNotifyingHost(newVal);

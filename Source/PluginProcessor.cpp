@@ -42,7 +42,8 @@ static bool isLivePerformanceParam(int idx)
          idx == kAdsrMode ||  // mode selects the bank, not a preset parameter
          idx == kArpQuantize || idx == kLfoQuantize ||
          (idx >= kSettingVoices && idx <= kSettingMidiSysEx) ||
-         idx == kSettingOscMode;
+         idx == kSettingOscMode ||
+         (idx >= kDelayTime && idx <= kDelayWow);  // global FX, survives preset changes
 }
 
 static bool sExcludeMask[kNumParams] = {};
@@ -440,6 +441,23 @@ KR106AudioProcessor::KR106AudioProcessor()
     [](int v, int) { return juce::String(kr106::kLfoDivNames[v]); });
   addSwitch(kSettingOscMode,     "Oscillator Mode",    1, 0, 1,
     [](int v, int) { return v == 0 ? juce::String("Wavetable") : juce::String("PolyBLEP"); });
+
+  // Tape delay (global FX, 0-1 sliders)
+  SFV fmtDelayTime = [](float v, int) -> juce::String {
+    return juce::String(juce::roundToInt(kr106::TapeDelay::TimeMs(v))) + " ms";
+  };
+  VFS parseDelayTime = [bsearch](const juce::String& text) -> float {
+    return bsearch([](float v) { return kr106::TapeDelay::TimeMs(v); }, text.getFloatValue());
+  };
+  SFV fmtDelayTone = [](float v, int) -> juce::String {
+    float hz = 1200.f * std::pow(10.f, v);
+    return hz >= 1000.f ? juce::String(hz / 1000.f, 1) + " kHz" : juce::String(juce::roundToInt(hz)) + " Hz";
+  };
+  addSlider(kDelayTime,     "Delay Time",     0.45f, 0.f, 1.f, fmtDelayTime, parseDelayTime);
+  addSlider(kDelayFeedback, "Delay Feedback", 0.35f, 0.f, 1.f, fmtPct, parsePct);
+  addSlider(kDelayMix,      "Delay Mix",      0.f,   0.f, 1.f, fmtPct, parsePct);
+  addSlider(kDelayTone,     "Delay Tone",     0.6f,  0.f, 1.f, fmtDelayTone);
+  addSlider(kDelayWow,      "Delay Wow",      0.2f,  0.f, 1.f, fmtPct, parsePct);
 
   // Build factory presets from compiled-in data (raw 7-bit integer values)
   constexpr int kFactoryValues = sizeof(KR106FactoryPreset::values) / sizeof(int);

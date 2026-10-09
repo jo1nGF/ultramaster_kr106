@@ -88,6 +88,200 @@ KR106Editor::KR106Editor(KR106AudioProcessor& p)
         return add(ctrl, x, y, w, h);
     };
 
+#if KR106_TOUCH
+    // =====================================================================
+    // TOUCH LAYOUT (landscape, 870x412 base units)
+    // Controls keep their native geometry and are scaled up with a
+    // per-component transform, so all drawing/drag code is reused as-is.
+    // =====================================================================
+    constexpr float kSF = 2.1f;   // faders      (20x49  -> 42x103)
+    constexpr float kBF = 1.9f;   // LED buttons (17x28  -> 32x53)
+    constexpr float kWF = 2.0f;   // 3-way switches (9x24 -> 18x48)
+    constexpr float kKF = 1.6f;   // knobs       (28x27  -> 45x43)
+    constexpr int kTileH = 156, kHdr = 20, kRowA = 74, kRowB = 238;
+    constexpr int kFadeY = 28;    // fader top, relative to tile
+    constexpr int kLblY = 148;    // label baseline, relative to tile
+
+    // JUCE applies a component's transform relative to its parent's origin, so
+    // position is folded into the transform: bounds = (0,0,w,h), transform = scale + translate.
+    auto scaled = [&](auto* ctrl, float f) {
+        auto b = ctrl->getBounds();
+        ctrl->setBounds(0, 0, b.getWidth(), b.getHeight());
+        ctrl->setTransform(juce::AffineTransform::scale(f).translated((float) b.getX(), (float) b.getY()));
+        return ctrl;
+    };
+    auto lbl = [&](const char* t, float cx, int y) { mTouchLabels.push_back({ t, cx, y }); };
+    auto tile = [&](const char* name, int x, int y, int w, bool blue) {
+        mTouchSections.push_back({ name, { x, y, w, kTileH }, blue });
+    };
+    // Control helpers: x = left edge in base units, ty = tile top
+    auto fader = [&](int idx, int x, int ty, const char* l) {
+        auto* sl = new KR106Slider(param(idx), tip, sliderHdl);
+        addSlider(idx, sl, x, ty + kFadeY, 20, 49)->setExtraRight(1);
+        scaled(sl, kSF); lbl(l, x + 20.f, ty + kLblY);
+        return sl;
+    };
+    auto sw3 = [&](int idx, int n, int x, int ty, const char* l) {
+        auto* c = new KR106Switch(param(idx), switchV, n, tip);
+        addML(idx, c, x, ty + kFadeY + 28, 9, 24); scaled(c, kWF);
+        lbl(l, x + 9.f, ty + kLblY);
+    };
+    auto ledBtn = [&](int idx, int type, int x, int ty, const char* l, int labelY) {
+        auto* c = new KR106ButtonLED(param(idx), type, ledRed, param(kPower), tip);
+        addML(idx, c, x, ty + kFadeY + 8, 17, 28); scaled(c, kBF);
+        lbl(l, x + 16.f, ty + labelY);
+    };
+    auto knob = [&](int idx, int cx, int cy, const char* l, float f) {
+        auto* c = new KR106Knob(param(idx), smallKnob, tip, 32);
+        c->setMidiLearn(&p, idx);
+        mLearnableParams.push_back(idx); mLearnableControls.push_back({ idx, c });
+        add(c, cx - (int) (14 * f), cy - (int) (13.5f * f), 28, 27); scaled(c, f);
+        lbl(l, (float) cx, cy + (int) (6.f * f) + 13);   // visible knob art is ~12 px of the 28x27 frame
+        return c;
+    };
+
+    // ---- widths: row A (LFO, DCO, HPF, VCF) and row B (VCA, ENV, CHORUS, DELAY, ARP)
+    const int wA[4] = { 130, 332, 56, 262 };
+    const int wB[5] = { 86, 218, 88, 240, 192 };
+    auto gapFor = [&](const int* w, int n) {
+        int sum = 0; for (int i = 0; i < n; i++) sum += w[i];
+        return std::max(2, (kBaseWidth - 16 - sum) / (n - 1));
+    };
+    const int gA = gapFor(wA, 4), gB = gapFor(wB, 5);
+    int xA[4], xB[5];
+    { int x = 8; for (int i = 0; i < 4; i++) { xA[i] = x; x += wA[i] + gA; } }
+    { int x = 8; for (int i = 0; i < 5; i++) { xB[i] = x; x += wB[i] + gB; } }
+
+    // ---------------- TOP BAR ----------------
+    scaled(add(new KR106PowerSwitch(param(kPower)), 12, 17, 15, 19), 1.6f);
+    lbl("Power", 24.f, 58);
+
+    mPresetDisplay = add(new KR106PresetDisplay(&p), 46, 21, 128, 14);
+    scaled(mPresetDisplay, 1.7f);
+    {
+        static const char* dbSvg =
+            R"(<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6a8 3 0 1 0 16 0a8 3 0 1 0 -16 0" /><path d="M4 6v6a8 3 0 0 0 16 0v-6" /><path d="M4 12v6a8 3 0 0 0 16 0v-6" /></svg>)";
+        static const char* gearSvg =
+            R"(<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M10.325 4.317c.426 -1.756 2.924 -1.756 3.35 0a1.724 1.724 0 0 0 2.573 1.066c1.543 -.94 3.31 .826 2.37 2.37a1.724 1.724 0 0 0 1.065 2.572c1.756 .426 1.756 2.924 0 3.35a1.724 1.724 0 0 0 -1.066 2.573c.94 1.543 -.826 3.31 -2.37 2.37a1.724 1.724 0 0 0 -2.572 1.065c-.426 1.756 -2.924 1.756 -3.35 0a1.724 1.724 0 0 0 -2.573 -1.066c-1.543 .94 -3.31 -.826 -2.37 -2.37a1.724 1.724 0 0 0 -1.065 -2.572c-1.756 -.426 -1.756 -2.924 0 -3.35a1.724 1.724 0 0 0 1.066 -2.573c-.94 -1.543 .826 -3.31 2.37 -2.37c1 .608 2.296 .07 2.572 -1.065" /><path d="M9 12a3 3 0 1 0 6 0a3 3 0 0 0 -6 0" /></svg>)";
+        add(new KR106IconButton(dbSvg, [this]() { mPresetDisplay->openContextMenu(); }), 266, 17, 30, 30);
+        add(new KR106IconButton(gearSvg, [this]() { showSettingsMenu(); }), 828, 17, 30, 30);
+    }
+    mScope = add(new KR106Scope(&p), 306, 3, 128, 74);
+    scaled(mScope, 0.82f);
+
+    auto* tune = knob(kTuning, 462, 30, "Tune", 2.2f);
+    tune->setSnapCenter(true); tune->setGearing(205.f);
+    knob(kMasterVol, 512, 30, "Master", 2.2f);
+    mClipLED = dynamic_cast<KR106ClipLED*>(add(new KR106ClipLED(ledRed, 1.f), 530, 8, 9, 9));
+    knob(kPortaRate, 562, 30, "Porta", 2.2f);
+    {   auto* c = new KR106Switch(param(kPortaMode), switchV, 3, tip);
+        addML(kPortaMode, c, 598, 14, 9, 24); scaled(c, 1.5f); lbl("Mode", 605.f, 58); }
+    {   auto* c = new KR106HorizontalSwitch(param(kAdsrMode), switchH, 2, tip);
+        addML(kAdsrMode, c, 628, 22, 24, 9); scaled(c, 1.9f); lbl("60 / 106", 650.f, 58); }
+    knob(kBenderDco, 690, 30, "Bnd dco", 2.0f);
+    knob(kBenderVcf, 730, 30, "Bnd vcf", 2.0f);
+    knob(kBenderLfo, 770, 30, "Bnd lfo", 2.0f);
+    add(new KR106TouchTextButton("Keys", [this]() { showKeysSheet(); }, juce::Colour(0xff9a0e0e)), 792, 18, 32, 30);
+
+    // ---------------- ROW A ----------------
+    {   // LFO
+        int x0 = xA[0], ty = kRowA; tile("LFO", x0, ty, wA[0], false);
+        mLfoRateSlider = new KR106LfoRateSlider(param(kLfoRate), param(kLfoQuantize), kLfoRate, kLfoQuantize, tip, sliderHdl, &p.mLfoSyncHost);
+        addSlider(kLfoRate, mLfoRateSlider, x0 + 8, ty + kFadeY, 20, 49)->setExtraRight(1);
+        scaled(mLfoRateSlider, kSF); lbl("Rate", x0 + 28.f, ty + kLblY);
+        fader(kLfoDelay, x0 + 52, ty, "Delay");
+        sw3(kLfoMode, 2, x0 + 100, ty, "Mode");
+    }
+    {   // DCO
+        int x0 = xA[1], ty = kRowA; tile("DCO", x0, ty, wA[1], false);
+        fader(kDcoLfo, x0 + 8, ty, "LFO");
+        fader(kDcoPwm, x0 + 52, ty, "PWM");
+        sw3(kPwmMode, 3, x0 + 100, ty, "Mode");
+        fader(kDcoSub, x0 + 136, ty, "Sub");
+        fader(kDcoNoise, x0 + 180, ty, "Noise");
+        ledBtn(kDcoPulse, 1, x0 + 232, ty, "Pulse", 104);
+        ledBtn(kDcoSaw,   1, x0 + 232 + 38, ty, "Saw", 104);
+        ledBtn(kDcoSubSw, 2, x0 + 232 + 76, ty, "Sub", 104);
+        auto* oct = new KR106HorizontalSwitch(param(kOctTranspose), switchH, 3, tip);
+        addML(kOctTranspose, oct, x0 + 252, ty + 114, 24, 9); scaled(oct, 2.0f);
+        lbl("Range", x0 + 276.f, ty + kLblY);
+    }
+    {   // HPF (4-position slider with model-dependent labels)
+        int x0 = xA[2], ty = kRowA; tile("HPF", x0, ty, wA[2], false);
+        auto* s = new KR106HPFSlider(param(kHpfFreq), tip, sliderHdl, &p.mDSP.mSynthModel);
+        s->setMidiLearn(&p, kHpfFreq);
+        mLearnableParams.push_back(kHpfFreq); mLearnableControls.push_back({ kHpfFreq, s });
+        add(s, x0 + 8, ty + kFadeY, 20, 49); s->setExtraRight(1); scaled(s, kSF);
+        lbl("Freq", x0 + 28.f, ty + kLblY);
+    }
+    {   // VCF
+        int x0 = xA[3], ty = kRowA; tile("VCF", x0, ty, wA[3], false);
+        fader(kVcfFreq, x0 + 8, ty, "Freq");
+        fader(kVcfRes, x0 + 52, ty, "Res");
+        fader(kVcfEnv, x0 + 96, ty, "Env");
+        fader(kVcfLfo, x0 + 140, ty, "LFO");
+        fader(kVcfKbd, x0 + 184, ty, "Kbd");
+        sw3(kVcfEnvInv, 2, x0 + 232, ty, "Inv");
+    }
+
+    // ---------------- ROW B ----------------
+    {   // VCA
+        int x0 = xB[0], ty = kRowB; tile("VCA", x0, ty, wB[0], false);
+        sw3(kVcaMode, 2, x0 + 8, ty, "Mode");
+        fader(kVcaLevel, x0 + 36, ty, "Level");
+    }
+    {   // ENVELOPE
+        int x0 = xB[1], ty = kRowB; tile("Envelope", x0, ty, wB[1], false);
+        fader(kEnvA, x0 + 8, ty, "A");
+        fader(kEnvD, x0 + 52, ty, "D");
+        fader(kEnvS, x0 + 96, ty, "S");
+        fader(kEnvR, x0 + 140, ty, "R");
+    }
+    {   // CHORUS
+        int x0 = xB[2], ty = kRowB; tile("Chorus", x0, ty, wB[2], true);
+        ledBtn(kChorusI,  1, x0 + 8,  ty, "I",  kLblY);
+        ledBtn(kChorusII, 2, x0 + 46, ty, "II", kLblY);
+    }
+    {   // TAPE DELAY (new)
+        int x0 = xB[3], ty = kRowB; tile("Tape delay", x0, ty, wB[3], true);
+        const int cy = ty + 72;
+        knob(kDelayTime,     x0 + 28,  cy, "Time", 2.6f);
+        knob(kDelayFeedback, x0 + 76,  cy, "Feedback", 2.6f);
+        knob(kDelayMix,      x0 + 124, cy, "Mix", 2.6f);
+        knob(kDelayTone,     x0 + 172, cy, "Tone", 2.6f);
+        knob(kDelayWow,      x0 + 216, cy, "Wow", 2.6f);
+    }
+    {   // ARPEGGIATOR
+        int x0 = xB[4], ty = kRowB; tile("Arp", x0, ty, wB[4], true);
+        mArpRateSlider = new KR106ArpRateSlider(param(kArpRate), param(kArpQuantize), kArpRate, kArpQuantize, tip, sliderHdl, &p.mArpSyncHost);
+        addSlider(kArpRate, mArpRateSlider, x0 + 8, ty + kFadeY, 20, 49)->setExtraRight(1);
+        scaled(mArpRateSlider, kSF); lbl("Rate", x0 + 28.f, ty + kLblY);
+        ledBtn(kHold,     1, x0 + 52,  ty, "Hold", kLblY);
+        ledBtn(kArpeggio, 1, x0 + 90,  ty, "Arp",  kLblY);
+        sw3(kArpMode, 3, x0 + 130, ty, "Mode");
+        sw3(kArpRange, 3, x0 + 168, ty, "Range");
+    }
+
+    // Hidden desktop keyboard object: the editor's timer / QWERTY code updates it.
+    // The touch UI uses the on-screen keys sheet instead (Keys button).
+    mKeyboard = new KR106Keyboard(&p, chevron);
+    mControls.add(mKeyboard);
+    mKeyboard->setBounds(0, 0, 792, 114);
+
+    // Long-press on any control => MIDI learn (the touch equivalent of right-click)
+    mLongPress.onLongPress = [this](juce::Component* c) {
+        for (auto& lc : mLearnableControls)
+            if (lc.ctrl == c)
+            {
+                mProcessor.startMidiLearn(lc.paramIdx);
+                c->repaint();
+                mTooltip.showText("MIDI learn: move a control on your keyboard", c);
+                return true;
+            }
+        return false;
+    };
+    mContent.addMouseListener(&mLongPress, true);
+#else
     // Power section
     add(new KR106PowerSwitch(param(kPower)),              46,  40,  15, 19);
     // Performance controls — created here for visual layout, but registered
@@ -230,6 +424,8 @@ KR106Editor::KR106Editor(KR106AudioProcessor& p)
     // === KEYBOARD ===
     mKeyboard = add(new KR106Keyboard(&p, chevron), 129, 106, 792, 114);
 
+#endif
+
     // Accept keyboard focus so UP/DN arrow keys cycle presets
     setWantsKeyboardFocus(true);
 
@@ -259,8 +455,12 @@ KR106Editor::KR106Editor(KR106AudioProcessor& p)
     mUIScale = savedScale;
 
     mInternalResize = true;
+#if KR106_TOUCH
+    setSize(kBaseWidth, kBaseHeight);
+#else
     setSize(juce::roundToInt(kBaseWidth * savedScale),
             juce::roundToInt(kBaseHeight * savedScale));
+#endif
     mInternalResize = false;
 
     // Now enable host drag-resize. Lock aspect ratio so the UI scales uniformly.
@@ -271,20 +471,42 @@ KR106Editor::KR106Editor(KR106AudioProcessor& p)
     // in-plugin Settings menu to change scale. This is the same limitation
     // Surge XT and other JUCE-based plugins have in Logic.
     setResizable(true, false);
+#if KR106_TOUCH
+    setResizeLimits(320, 160, 8192, 8192);   // any window shape; content is letterboxed
+#else
     setResizeLimits(kBaseWidth, kBaseHeight, kBaseWidth * 4, kBaseHeight * 4);
     getConstrainer()->setFixedAspectRatio(
         static_cast<double>(kBaseWidth) / kBaseHeight);
+#endif
 
     startTimerHz(30);
 }
 
 KR106Editor::~KR106Editor()
 {
+#if KR106_TOUCH
+    mContent.removeMouseListener(&mLongPress);
+    mKeysSheet.reset();
+#endif
     stopTimer();
 }
 
 void KR106Editor::resized()
 {
+#if KR106_TOUCH
+    // Fit the fixed-size content into whatever window we are given (letterboxed).
+    {
+        float sc = std::min(getWidth()  / static_cast<float>(kBaseWidth),
+                            getHeight() / static_cast<float>(kBaseHeight));
+        if (sc <= 0.f) return;
+        float ox = (getWidth()  - kBaseWidth  * sc) * 0.5f;
+        float oy = (getHeight() - kBaseHeight * sc) * 0.5f;
+        mUIScale = sc;
+        mContent.setTransform(juce::AffineTransform::scale(sc).translated(ox, oy));
+        mContent.setBounds(0, 0, kBaseWidth, kBaseHeight);
+        return;
+    }
+#endif
     float scale;
 
     if (mInternalResize)
@@ -781,8 +1003,60 @@ bool KR106Editor::keyStateChanged(bool /*isKeyDown*/)
     return handled;
 }
 
+void KR106Editor::paintTouchBackground(juce::Graphics& g)
+{
+    g.fillAll(juce::Colour(0xff0c0c0c));
+    g.addTransform(mContent.getTransform());
+    g.setColour(juce::Colour(0xff434343));
+    g.fillRect(0, 0, kBaseWidth, kBaseHeight);
+    g.setColour(juce::Colour(0xff2e2e2e));                 // top bar
+    g.fillRect(0, 0, kBaseWidth, 66);
+    g.setColour(juce::Colour(0xffc60a0a));
+    g.fillRect(0, 64, kBaseWidth, 2);
+
+    const juce::Colour red(0xff9a0e0e), blue(0xff14388f);
+    for (auto& t : mTouchSections)
+    {
+        g.setColour(juce::Colour(0xff383838));
+        g.fillRoundedRectangle(t.r.toFloat(), 4.f);
+        g.setColour(t.blue ? blue : red);                   // header bar (top corners rounded)
+        juce::Path hdr;
+        hdr.addRoundedRectangle((float) t.r.getX(), (float) t.r.getY(), (float) t.r.getWidth(), 20.f,
+                                4.f, 4.f, true, true, false, false);
+        g.fillPath(hdr);
+        g.setColour(juce::Colours::white);
+        g.setFont(juce::FontOptions(13.f));
+        g.drawText(t.name, t.r.getX() + 8, t.r.getY(), t.r.getWidth() - 12, 20,
+                   juce::Justification::centredLeft);
+    }
+    g.setColour(juce::Colours::white);
+    g.setFont(juce::FontOptions(11.f));
+    for (auto& l : mTouchLabels)
+        g.drawText(l.text, juce::Rectangle<float>(l.cx - 34.f, (float) l.y - 12.f, 68.f, 14.f),
+                   juce::Justification::centred);
+}
+
+void KR106Editor::showKeysSheet()
+{
+#if KR106_TOUCH
+    if (mKeysSheet) return;
+    auto grad = juce::ImageCache::getFromMemory(BinaryData::kr106_bender_gradient2x_png,
+                                                BinaryData::kr106_bender_gradient2x_pngSize);
+    auto* bender = new KR106Bender(mProcessor.getParam(kBender), grad, &mProcessor);
+    mKeysSheet = std::make_unique<KR106TouchKeysSheet>(&mProcessor, bender);
+    mKeysSheet->onClose = [this]() { mKeysSheet.reset(); };
+    mContent.addAndMakeVisible(mKeysSheet.get());
+    mKeysSheet->setBounds(0, 226, kBaseWidth, kBaseHeight - 226);
+    mKeysSheet->toFront(false);
+#endif
+}
+
 void KR106Editor::paint(juce::Graphics& g)
 {
+#if KR106_TOUCH
+    paintTouchBackground(g);
+    return;
+#endif
     // Black fill for any uncovered area (when host allows non-aspect-ratio sizes)
     g.fillAll(juce::Colours::black);
 

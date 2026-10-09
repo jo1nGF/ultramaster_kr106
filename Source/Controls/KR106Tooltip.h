@@ -2,6 +2,7 @@
 
 #include <juce_gui_basics/juce_gui_basics.h>
 #include <juce_audio_processors/juce_audio_processors.h>
+#include "KR106Touch.h"
 
 // Apple AU hosts (Logic, GarageBand) have a long-standing bug where
 // [NSCursor set] succeeds but the visual cursor doesn't update until
@@ -99,15 +100,16 @@ public:
 private:
     void positionBelow(juce::Component* source)
     {
-        auto srcBounds = getParentComponent()->getLocalArea(source->getParentComponent(),
-                                                             source->getBounds());
+        // getLocalArea honours the control's own transform (touch UI scales controls up)
+        auto srcBounds = getParentComponent()->getLocalArea(source, source->getLocalBounds());
         int tw = std::max(textWidth(mText), textWidth(mLine2)) + 10;
-        int th = mLine2.isEmpty() ? 16 : 28;
+        int th = mLine2.isEmpty() ? (kr106touch::kEnabled ? 22 : 16) : (kr106touch::kEnabled ? 38 : 28);
         int tx = srcBounds.getCentreX() - tw / 2;
-        int ty = srcBounds.getBottom() + 2;
+        // Desktop: below the control. Touch: above it, so the finger doesn't hide the value.
+        int ty = kr106touch::kEnabled ? srcBounds.getY() - th - 4 : srcBounds.getBottom() + 2;
         auto pb = getParentComponent()->getLocalBounds();
         tx = juce::jlimit(0, pb.getWidth() - tw, tx);
-        ty = juce::jmin(pb.getHeight() - th, ty);
+        ty = juce::jlimit(0, pb.getHeight() - th, ty);
         setBounds(tx, ty, tw, th);
     }
 
@@ -127,5 +129,5 @@ private:
     juce::RangedAudioParameter* mParam = nullptr;
     juce::String mText;
     juce::String mLine2;
-    juce::Font mFont{juce::FontOptions(11.f)};
+    juce::Font mFont{juce::FontOptions(kr106touch::kEnabled ? 15.f : 11.f)};
 };

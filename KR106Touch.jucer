@@ -1,0 +1,122 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<JUCERPROJECT id="4dc844" name="KR106Touch" projectType="guiapp" version="2.5.13"
+              bundleIdentifier="org.kayrock.kr106touch" companyName="Kayrock"
+              useAppConfig="0" addUsingNamespaceToJuceHeader="0" displaySplashScreen="0"
+              reportAppUsage="0" cppLanguageStandard="17" jucerFormatVersion="1"
+              headerPath="Source&#10;Source/DSP&#10;Source/Controls&#10;." defines="KR106_TOUCH=1&#10;JUCE_WEB_BROWSER=0&#10;JUCE_USE_CURL=0&#10;_USE_MATH_DEFINES">
+  <MAINGROUP id="fad58d" name="KR106Touch">
+    <GROUP id="44c220" name="android">
+      <FILE id="db533a" name="Main.cpp" compile="1" resource="0" file="android/Main.cpp"/>
+    </GROUP>
+    <GROUP id="737bc9" name="Source">
+      <FILE id="a58928" name="PluginEditor.cpp" compile="1" resource="0" file="Source/PluginEditor.cpp"/>
+      <FILE id="1e569f" name="PluginProcessor.cpp" compile="1" resource="0" file="Source/PluginProcessor.cpp"/>
+      <FILE id="0da892" name="KR106PresetManager.h" compile="0" resource="0" file="Source/KR106PresetManager.h"/>
+      <FILE id="077ad6" name="KR106_Presets_JUCE.h" compile="0" resource="0" file="Source/KR106_Presets_JUCE.h"/>
+      <FILE id="f26b33" name="PluginEditor.h" compile="0" resource="0" file="Source/PluginEditor.h"/>
+      <FILE id="2190cc" name="PluginProcessor.h" compile="0" resource="0" file="Source/PluginProcessor.h"/>
+    </GROUP>
+    <GROUP id="1ce18d" name="Controls">
+      <FILE id="9303e0" name="KR106Bender.h" compile="0" resource="0" file="Source/Controls/KR106Bender.h"/>
+      <FILE id="4ead56" name="KR106Button.h" compile="0" resource="0" file="Source/Controls/KR106Button.h"/>
+      <FILE id="ba8ca6" name="KR106Keyboard.h" compile="0" resource="0" file="Source/Controls/KR106Keyboard.h"/>
+      <FILE id="7916d4" name="KR106Knob.h" compile="0" resource="0" file="Source/Controls/KR106Knob.h"/>
+      <FILE id="4ed7af" name="KR106MenuSheet.h" compile="0" resource="0" file="Source/Controls/KR106MenuSheet.h"/>
+      <FILE id="1423c9" name="KR106Misc.h" compile="0" resource="0" file="Source/Controls/KR106Misc.h"/>
+      <FILE id="2e0635" name="KR106PresetDisplay.h" compile="0" resource="0" file="Source/Controls/KR106PresetDisplay.h"/>
+      <FILE id="ae3df0" name="KR106QwertyDiagram.h" compile="0" resource="0" file="Source/Controls/KR106QwertyDiagram.h"/>
+      <FILE id="004c40" name="KR106Scope.h" compile="0" resource="0" file="Source/Controls/KR106Scope.h"/>
+      <FILE id="09a782" name="KR106Slider.h" compile="0" resource="0" file="Source/Controls/KR106Slider.h"/>
+      <FILE id="4ba168" name="KR106Switch.h" compile="0" resource="0" file="Source/Controls/KR106Switch.h"/>
+      <FILE id="de9ece" name="KR106Tooltip.h" compile="0" resource="0" file="Source/Controls/KR106Tooltip.h"/>
+      <FILE id="e88e2f" name="KR106Touch.h" compile="0" resource="0" file="Source/Controls/KR106Touch.h"/>
+      <FILE id="3c62ef" name="KR106TouchKeys.h" compile="0" resource="0" file="Source/Controls/KR106TouchKeys.h"/>
+      <FILE id="9d599f" name="KR106VarianceSheet.h" compile="0" resource="0" file="Source/Controls/KR106VarianceSheet.h"/>
+    </GROUP>
+    <GROUP id="79e0a2" name="DSP">
+      <FILE id="475226" name="BBDFilter.h" compile="0" resource="0" file="Source/DSP/BBDFilter.h"/>
+      <FILE id="912fad" name="J106DACHzTable.h" compile="0" resource="0" file="Source/DSP/J106DACHzTable.h"/>
+      <FILE id="aed647" name="KR106ADSR.h" compile="0" resource="0" file="Source/DSP/KR106ADSR.h"/>
+      <FILE id="8ba55e" name="KR106AnalogNoise.h" compile="0" resource="0" file="Source/DSP/KR106AnalogNoise.h"/>
+      <FILE id="63d029" name="KR106Arpeggiator.h" compile="0" resource="0" file="Source/DSP/KR106Arpeggiator.h"/>
+      <FILE id="6e479d" name="KR106Chorus.h" compile="0" resource="0" file="Source/DSP/KR106Chorus.h"/>
+      <FILE id="9c89dc" name="KR106LFO.h" compile="0" resource="0" file="Source/DSP/KR106LFO.h"/>
+      <FILE id="2f2b17" name="KR106Noise.h" compile="0" resource="0" file="Source/DSP/KR106Noise.h"/>
+      <FILE id="c44809" name="KR106Oscillators.h" compile="0" resource="0" file="Source/DSP/KR106Oscillators.h"/>
+      <FILE id="d81572" name="KR106OscillatorsWT.h" compile="0" resource="0" file="Source/DSP/KR106OscillatorsWT.h"/>
+      <FILE id="d446e4" name="KR106ParamValue.h" compile="0" resource="0" file="Source/DSP/KR106ParamValue.h"/>
+      <FILE id="d83c04" name="KR106Resampler.h" compile="0" resource="0" file="Source/DSP/KR106Resampler.h"/>
+      <FILE id="0da93f" name="KR106SysEx.h" compile="0" resource="0" file="Source/DSP/KR106SysEx.h"/>
+      <FILE id="8ba590" name="KR106TapeDelay.h" compile="0" resource="0" file="Source/DSP/KR106TapeDelay.h"/>
+      <FILE id="dd531a" name="KR106VCA.h" compile="0" resource="0" file="Source/DSP/KR106VCA.h"/>
+      <FILE id="881a4a" name="KR106VCF.h" compile="0" resource="0" file="Source/DSP/KR106VCF.h"/>
+      <FILE id="3f1c68" name="KR106VCF_OPTIMIZED.h" compile="0" resource="0" file="Source/DSP/KR106VCF_OPTIMIZED.h"/>
+      <FILE id="e772cb" name="KR106VcfFreqJ106.h" compile="0" resource="0" file="Source/DSP/KR106VcfFreqJ106.h"/>
+      <FILE id="80b2fd" name="KR106VcfFreqJ6.h" compile="0" resource="0" file="Source/DSP/KR106VcfFreqJ6.h"/>
+      <FILE id="f672c2" name="KR106Voice.h" compile="0" resource="0" file="Source/DSP/KR106Voice.h"/>
+      <FILE id="e97bdb" name="KR106_DSP.h" compile="0" resource="0" file="Source/DSP/KR106_DSP.h"/>
+      <FILE id="7a9a55" name="KR106_DSP_SetParam.h" compile="0" resource="0" file="Source/DSP/KR106_DSP_SetParam.h"/>
+      <FILE id="a7a884" name="KR106_HPF.h" compile="0" resource="0" file="Source/DSP/KR106_HPF.h"/>
+    </GROUP>
+    <GROUP id="0abc3e" name="Resources">
+      <FILE id="d864ce" name="kr106_background@2x.png" compile="0" resource="1" file="resources/img/kr106_background@2x.png"/>
+      <FILE id="43379d" name="knob@2x.png" compile="0" resource="1" file="resources/img/knob@2x.png"/>
+      <FILE id="eff46d" name="smallknob@2x.png" compile="0" resource="1" file="resources/img/smallknob@2x.png"/>
+      <FILE id="411e3b" name="switch_3way@2x.png" compile="0" resource="1" file="resources/img/switch_3way@2x.png"/>
+      <FILE id="f071e1" name="switch_3way_horizontal@2x.png" compile="0" resource="1" file="resources/img/switch_3way_horizontal@2x.png"/>
+      <FILE id="127d0f" name="led_red@2x.png" compile="0" resource="1" file="resources/img/led_red@2x.png"/>
+      <FILE id="9c113c" name="kr106_bender_gradient@2x.png" compile="0" resource="1" file="resources/img/kr106_bender_gradient@2x.png"/>
+      <FILE id="e93474" name="transpose_chevron@2x.png" compile="0" resource="1" file="resources/img/transpose_chevron@2x.png"/>
+      <FILE id="f83937" name="new_knob@2x.png" compile="0" resource="1" file="resources/img/new_knob@2x.png"/>
+      <FILE id="b8d95f" name="slider_handle@2x.png" compile="0" resource="1" file="resources/img/slider_handle@2x.png"/>
+      <FILE id="87c29f" name="Segment14.otf" compile="0" resource="1" file="resources/fonts/Segment14.otf"/>
+    </GROUP>
+  </MAINGROUP>
+  <EXPORTFORMATS>
+    <ANDROIDSTUDIO targetFolder="Builds/Android" androidScreenOrientation="landscape"
+                   androidMinimumSDK="24" androidInternetNeeded="0"
+                   androidExternalWriteNeeded="0" androidReadMediaAudioPermission="0"
+                   androidReadMediaImagesPermission="0" androidReadMediaVideoPermission="0"
+                   androidPushNotifications="0" androidBluetoothScanNeeded="1"
+                   androidBluetoothConnectNeeded="1"
+                   extraCompilerFlags="-ffp-contract=fast -fno-math-errno">
+      <CONFIGURATIONS>
+        <CONFIGURATION name="Debug" isDebug="1" targetName="KR106Touch" androidArchitectures="arm64-v8a"/>
+        <CONFIGURATION name="Release" isDebug="0" targetName="KR106Touch" androidArchitectures="arm64-v8a"/>
+      </CONFIGURATIONS>
+      <MODULEPATHS>
+        <MODULEPATH id="juce_audio_basics" path="libs/JUCE/modules"/>
+        <MODULEPATH id="juce_audio_devices" path="libs/JUCE/modules"/>
+        <MODULEPATH id="juce_audio_formats" path="libs/JUCE/modules"/>
+        <MODULEPATH id="juce_audio_processors" path="libs/JUCE/modules"/>
+        <MODULEPATH id="juce_audio_processors_headless" path="libs/JUCE/modules"/>
+        <MODULEPATH id="juce_audio_utils" path="libs/JUCE/modules"/>
+        <MODULEPATH id="juce_core" path="libs/JUCE/modules"/>
+        <MODULEPATH id="juce_data_structures" path="libs/JUCE/modules"/>
+        <MODULEPATH id="juce_dsp" path="libs/JUCE/modules"/>
+        <MODULEPATH id="juce_events" path="libs/JUCE/modules"/>
+        <MODULEPATH id="juce_graphics" path="libs/JUCE/modules"/>
+        <MODULEPATH id="juce_gui_basics" path="libs/JUCE/modules"/>
+        <MODULEPATH id="juce_gui_extra" path="libs/JUCE/modules"/>
+      </MODULEPATHS>
+    </ANDROIDSTUDIO>
+  </EXPORTFORMATS>
+  <MODULES>
+    <MODULE id="juce_audio_basics" showAllCode="1" useLocalCopy="0" useGlobalPath="0"/>
+    <MODULE id="juce_audio_devices" showAllCode="1" useLocalCopy="0" useGlobalPath="0"/>
+    <MODULE id="juce_audio_formats" showAllCode="1" useLocalCopy="0" useGlobalPath="0"/>
+    <MODULE id="juce_audio_processors" showAllCode="1" useLocalCopy="0" useGlobalPath="0"/>
+    <MODULE id="juce_audio_processors_headless" showAllCode="1" useLocalCopy="0" useGlobalPath="0"/>
+    <MODULE id="juce_audio_utils" showAllCode="1" useLocalCopy="0" useGlobalPath="0"/>
+    <MODULE id="juce_core" showAllCode="1" useLocalCopy="0" useGlobalPath="0"/>
+    <MODULE id="juce_data_structures" showAllCode="1" useLocalCopy="0" useGlobalPath="0"/>
+    <MODULE id="juce_dsp" showAllCode="1" useLocalCopy="0" useGlobalPath="0"/>
+    <MODULE id="juce_events" showAllCode="1" useLocalCopy="0" useGlobalPath="0"/>
+    <MODULE id="juce_graphics" showAllCode="1" useLocalCopy="0" useGlobalPath="0"/>
+    <MODULE id="juce_gui_basics" showAllCode="1" useLocalCopy="0" useGlobalPath="0"/>
+    <MODULE id="juce_gui_extra" showAllCode="1" useLocalCopy="0" useGlobalPath="0"/>
+  </MODULES>
+  <JUCEOPTIONS JUCE_WEB_BROWSER="0" JUCE_USE_CURL="0" JUCE_USE_ANDROID_OBOE="1"/>
+  <LIVE_SETTINGS/>
+</JUCERPROJECT>

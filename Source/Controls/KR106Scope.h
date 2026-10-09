@@ -2,6 +2,7 @@
 
 #include <juce_gui_basics/juce_gui_basics.h>
 #include <juce_dsp/juce_dsp.h>
+#include "KR106Touch.h"
 #include "PluginProcessor.h"
 #include "KR106MenuSheet.h"
 #include <algorithm>

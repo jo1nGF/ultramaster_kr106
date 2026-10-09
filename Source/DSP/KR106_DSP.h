@@ -16,6 +16,7 @@
 #include "KR106VcfFreqJ6.h"
 #include "KR106Arpeggiator.h"
 #include "KR106Chorus.h"
+#include "KR106TapeDelay.h"
 #include "KR106_HPF.h"
 #include "KR106AnalogNoise.h"
 #include "KR106Resampler.h"
@@ -688,6 +689,18 @@ public:
       if (nOutputs > 1) outputs[1][s] = static_cast<T>(R);
     }
 
+    // Tape delay after the chorus (always runs so state stays warm; with
+    // mix = 0 the dry signal passes through bit-exact).
+    for (int s = 0; s < nFrames; s++)
+    {
+      float L = static_cast<float>(outputs[0][s]);
+      float R = (nOutputs > 1) ? static_cast<float>(outputs[1][s]) : L;
+      float oL, oR;
+      mTapeDelay.Process(L, R, oL, oR);
+      outputs[0][s] = static_cast<T>(oL);
+      if (nOutputs > 1) outputs[1][s] = static_cast<T>(oR);
+    }
+
     // Master volume after chorus (scales signal + chorus noise together)
     // Smoothed per-sample to prevent zipper noise on knob changes.
     for (int s = 0; s < nFrames; s++)
@@ -743,6 +756,8 @@ public:
     mHPF.Init();
     mHPF.SetMode(1);
     mChorus.Init(mSampleRate);
+    mTapeDelay.Init(mSampleRate);
+    mTapeDelay.Snap();
     mFloorNoise.Init(mSampleRate);
     mFloorNoise.mPinkEnabled = true;
     mFloorNoise.SetHighShelf(500, -16, mSampleRate);
@@ -840,6 +855,7 @@ public:
   kr106::HPF mHPF;
 
   kr106::Chorus mChorus;
+  kr106::TapeDelay mTapeDelay;
   kr106::Arpeggiator mArp;
 
   float mVcaLevel = 1.f;

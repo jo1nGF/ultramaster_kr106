@@ -4,9 +4,14 @@ project(KR106 VERSION 2.5.13)
 set(CMAKE_OSX_DEPLOYMENT_TARGET "10.15" CACHE STRING "Minimum macOS version")
 
 add_subdirectory(libs/JUCE)
-add_subdirectory(libs/clap-juce-extensions EXCLUDE_FROM_ALL)
+if(NOT KR106_TOUCH AND NOT KR106_NO_CLAP)
+  add_subdirectory(libs/clap-juce-extensions EXCLUDE_FROM_ALL)
+endif()
 
-set(KR106_FORMATS AU VST3 LV2 Standalone)
+if(NOT DEFINED KR106_FORMATS)
+  set(KR106_FORMATS AU VST3 LV2 Standalone)
+endif()
+option(KR106_TOUCH "Build the touch-screen UI (phones/tablets)" OFF)
 option(KR106_COPY_AFTER_BUILD "Copy plugins to system directories after build" ON)
 
 juce_add_plugin(KR106
@@ -64,6 +69,7 @@ target_sources(KR106 PRIVATE
     Source/DSP/KR106ADSR.h
     Source/DSP/KR106Arpeggiator.h
     Source/DSP/KR106Chorus.h
+    Source/DSP/KR106TapeDelay.h
     Source/DSP/KR106LFO.h
     Source/DSP/KR106Noise.h
     Source/DSP/KR106Resampler.h
@@ -83,6 +89,13 @@ target_include_directories(KR106 PRIVATE
     Source/DSP
     Source/Controls
 )
+
+if(KR106_TOUCH)
+  # Only our own sources see the macro, so JUCE module objects are shared
+  # with the desktop build (faster rebuilds).
+  file(GLOB KR106_OWN_CPPS "${CMAKE_CURRENT_SOURCE_DIR}/Source/*.cpp")
+  set_source_files_properties(${KR106_OWN_CPPS} PROPERTIES COMPILE_DEFINITIONS KR106_TOUCH=1)
+endif()
 
 target_compile_definitions(KR106 PUBLIC
     JUCE_WEB_BROWSER=0
@@ -114,10 +127,12 @@ target_link_libraries(KR106 PRIVATE
     KR106BinaryData
 )
 
+if(NOT KR106_TOUCH AND NOT KR106_NO_CLAP)
 clap_juce_extensions_plugin(TARGET KR106
     CLAP_ID "org.kayrock.kr106"
     CLAP_FEATURES instrument synthesizer analog
 )
+endif()
 
 # --- AU SysEx variant (aumf) for Logic Pro SysEx support ---
 # Logic blocks SysEx for aumu (instrument) plugins. This builds a second AU

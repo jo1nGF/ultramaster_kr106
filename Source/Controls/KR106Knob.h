@@ -4,6 +4,7 @@
 #include <juce_audio_processors/juce_audio_processors.h>
 
 #include "KR106Tooltip.h"
+#include "KR106Touch.h"
 #include "PluginProcessor.h"
 
 // ============================================================================
@@ -96,6 +97,15 @@ public:
         applyCursorWorkaround(e);
     }
 
+    // Touch UI scales knobs up, so restrict the touch area to the visible knob
+    // (otherwise neighbouring knobs' transparent frames overlap).
+    bool hitTest(int x, int y) override
+    {
+        if (!kr106touch::kEnabled) return juce::Component::hitTest(x, y);
+        return juce::Point<float>((float) x, (float) y)
+                   .getDistanceFrom(getLocalBounds().getCentre().toFloat()) <= 8.5f;
+    }
+
     void mouseDown(const juce::MouseEvent& e) override
     {
         if (e.mods.isPopupMenu() && mProcessor && mParamIdx >= 0)
@@ -140,10 +150,11 @@ public:
         // Cumulative gearing: shift only affects new movement
         // Scale by display DPI so non-retina screens get the same physical throw
         float dpiScale = std::max(1.f, static_cast<float>(getTopLevelComponent()->getDesktopScaleFactor()));
-        float gearing = mGearing;
+        // Touch: shorter throw, scaled by this knob's own gearing ratio
+        float gearing = kr106touch::kEnabled ? kr106touch::kKnobThrow * (mGearing / 127.f) : mGearing;
         if (e.mods.isCommandDown()) gearing *= 100.f;
         else if (e.mods.isShiftDown()) gearing *= 10.f;
-        gearing /= dpiScale;
+        if (!kr106touch::kEnabled) gearing /= dpiScale;
         mAccumVal = juce::jlimit(0.f, 1.f, mAccumVal + increment / gearing);
         float newVal = mAccumVal;
 

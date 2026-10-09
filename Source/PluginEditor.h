@@ -13,6 +13,8 @@
 #include "Controls/KR106PresetDisplay.h"
 #include "Controls/KR106MenuSheet.h"
 #include "Controls/KR106VarianceSheet.h"
+#include "Controls/KR106Touch.h"
+#include "Controls/KR106TouchKeys.h"
 
 class KR106Editor : public juce::AudioProcessorEditor,
                     private juce::Timer
@@ -31,8 +33,26 @@ public:
     void showSettingsMenu();
 
 private:
+#if KR106_TOUCH
+    // Landscape phone layout (Galaxy S10 is ~870x412 dp). The content is fitted
+    // to the window with letterboxing, so other aspect ratios work too.
+    static constexpr int kBaseWidth = 870;
+    static constexpr int kBaseHeight = 412;
+#else
     static constexpr int kBaseWidth = 940;
     static constexpr int kBaseHeight = 224;
+#endif
+
+    // Touch layout: section tiles and text labels are painted by the editor
+    // (the desktop UI gets them from the background bitmap).
+    struct TouchSection { juce::String name; juce::Rectangle<int> r; bool blue; };
+    struct TouchLabel   { juce::String text; float cx; int y; };
+    std::vector<TouchSection> mTouchSections;
+    std::vector<TouchLabel> mTouchLabels;
+    void paintTouchBackground(juce::Graphics&);
+    void showKeysSheet();
+    std::unique_ptr<KR106TouchKeysSheet> mKeysSheet;
+    kr106touch::LongPress mLongPress;
 
     int qwertyToNote(int keyCode) const;
     void qwertyAllNotesOff();
