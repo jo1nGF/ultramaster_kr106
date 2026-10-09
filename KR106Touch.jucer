@@ -4,7 +4,7 @@
               bundleIdentifier="org.kayrock.kr106touch" companyName="Kayrock"
               useAppConfig="0" addUsingNamespaceToJuceHeader="0" displaySplashScreen="0"
               reportAppUsage="0" cppLanguageStandard="17" jucerFormatVersion="1"
-              headerPath="Source&#10;Source/DSP&#10;Source/Controls&#10;." defines="KR106_TOUCH=1&#10;JUCE_WEB_BROWSER=0&#10;JUCE_USE_CURL=0&#10;_USE_MATH_DEFINES">
+              headerPath="../../Source&#10;../../Source/DSP&#10;../../Source/Controls" defines="KR106_TOUCH=1&#10;JUCE_WEB_BROWSER=0&#10;JUCE_USE_CURL=0&#10;_USE_MATH_DEFINES">
   <MAINGROUP id="fad58d" name="KR106Touch">
     <GROUP id="44c220" name="android">
       <FILE id="db533a" name="Main.cpp" compile="1" resource="0" file="android/Main.cpp"/>
