@@ -28,9 +28,30 @@ O APK é assinado com a chave de debug padrão, o que basta para instalar direto
 - **Engrenagem:** abre o menu original de ajustes (vozes, oversampling, sync etc.).
   No S10, comece com 6 vozes e VCF Oversample 2x e suba se a CPU permitir.
 
+## Zoom e arrastar
+
+Menu da engrenagem > 100% / 150% / 200% / 300%, ou com gestos: pinça com dois dedos em áreas
+vazias (entre os painéis), toque duplo numa área vazia para alternar 100% <-> 200%.
+Com zoom, arraste o dedo numa área sem controles para mover a visualização.
+
+## Áudio / MIDI / Latência
+
+Engrenagem > "Audio / MIDI / Latency": escolha o tamanho do buffer (latência), a taxa de
+amostragem e o driver de áudio, ligue/desligue cada controlador MIDI e veja um monitor da
+última mensagem MIDI recebida. As escolhas ficam salvas.
+
+## Arpejador
+
+Além do Mode (Up / Up-Down / Down) e do Range originais, o seletor **Pattern** oferece:
+Classic (segue a chave Mode), Up/Down incl., Down/Up, As played, **Random S&H**, Random walk,
+Converge, Diverge e Pedal. O seletor **S&H cycle** define como o Random S&H amostra: Free
+(valor novo a cada passo) ou Loop 2-16 (os valores amostrados ficam num ciclo que repete) ou
+Evolve 4/8/16 (ciclo que muda aos poucos).
+
 ## Tape delay
 
-Knobs Time, Feedback, Mix, Tone e Wow, entre o chorus e o master. O delay é global: não faz
+Knobs Time, Fdbk, Mix, Tone, Wow (profundidade do LFO que oscila o tempo de atraso, ou seja a
+afinação dos ecos) e Speed (velocidade desse LFO), entre o chorus e o master. O delay é global: não faz
 parte dos presets e não muda ao trocar de som. Mix em 0 deixa o som idêntico ao original.
 
 ## Build de teste no desktop (mesma interface)

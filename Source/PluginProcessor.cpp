@@ -43,7 +43,7 @@ static bool isLivePerformanceParam(int idx)
          idx == kArpQuantize || idx == kLfoQuantize ||
          (idx >= kSettingVoices && idx <= kSettingMidiSysEx) ||
          idx == kSettingOscMode ||
-         (idx >= kDelayTime && idx <= kDelayWow);  // global FX, survives preset changes
+         (idx >= kDelayTime && idx <= kArpShLoop);  // global FX / arp extras, survive preset changes
 }
 
 static bool sExcludeMask[kNumParams] = {};
@@ -458,6 +458,19 @@ KR106AudioProcessor::KR106AudioProcessor()
   addSlider(kDelayMix,      "Delay Mix",      0.f,   0.f, 1.f, fmtPct, parsePct);
   addSlider(kDelayTone,     "Delay Tone",     0.6f,  0.f, 1.f, fmtDelayTone);
   addSlider(kDelayWow,      "Delay Wow",      0.2f,  0.f, 1.f, fmtPct, parsePct);
+  SFV fmtWowRate = [](float v, int) -> juce::String {
+    return juce::String(kr106::TapeDelay::WowRateHz(v), 2) + " Hz";
+  };
+  addSlider(kDelayWowRate,  "Delay Wow Rate", 0.35f, 0.f, 1.f, fmtWowRate);
+  // Arpeggiator extras (discrete: value = index / (count - 1))
+  SFV fmtArpPattern = [](float v, int) -> juce::String {
+    return kr106::kPatternNames[kr106::patternFromValue(v)];
+  };
+  SFV fmtArpShLoop = [](float v, int) -> juce::String {
+    return kr106::kShLoops[kr106::shLoopFromValue(v)].name;
+  };
+  addSlider(kArpPattern, "Arp Pattern",    0.f, 0.f, 1.f, fmtArpPattern);
+  addSlider(kArpShLoop,  "Arp S&H Cycle",  0.f, 0.f, 1.f, fmtArpShLoop);
 
   // Build factory presets from compiled-in data (raw 7-bit integer values)
   constexpr int kFactoryValues = sizeof(KR106FactoryPreset::values) / sizeof(int);

@@ -54,6 +54,20 @@ private:
     std::unique_ptr<KR106TouchKeysSheet> mKeysSheet;
     kr106touch::LongPress mLongPress;
 
+    // Touch UI zoom / pan (zoom is relative to the "fit to window" scale)
+    float mZoom = 1.f, mTx = 0.f, mTy = 0.f;
+    bool mZoomInit = false;
+    kr106touch::PanZoom mPanZoom;
+    void updateTouchTransform();
+    void setTouchZoom(float zoom, juce::Point<float> focalPx);
+
+    // List pop-up used by the arpeggiator pattern / S&H cycle selectors
+    std::unique_ptr<KR106MenuSheet> mChoiceMenu;
+    KR106TouchChoice* mArpPatternBtn = nullptr;
+    KR106TouchChoice* mArpShBtn = nullptr;
+    void showChoiceMenu(const juce::StringArray& names, int current,
+                        juce::Rectangle<int> anchor, std::function<void(int)> onPick);
+
     int qwertyToNote(int keyCode) const;
     void qwertyAllNotesOff();
 

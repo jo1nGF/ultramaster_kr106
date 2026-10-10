@@ -5,6 +5,7 @@
 
 #include <juce_gui_basics/juce_gui_basics.h>
 #include <functional>
+#include <map>
 
 #ifndef KR106_TOUCH
 #define KR106_TOUCH 0
@@ -63,6 +64,71 @@ private:
     if (mTarget != nullptr && onLongPress) onLongPress(mTarget.getComponent());
   }
   juce::Component::SafePointer<juce::Component> mTarget;
+};
+
+// The Android app host (android/Main.cpp) sets this so the settings menu can open
+// its Audio / MIDI / latency panel. Empty on desktop builds (no menu entry then).
+inline std::function<void()>& audioMidiHook()
+{
+  static std::function<void()> f;
+  return f;
+}
+
+// Pan / pinch-zoom listener. Attach to the editor with addMouseListener(&pz, true).
+// Only gestures that START on "background" (no control underneath) are used, so
+// moving faders/knobs with other fingers is never affected:
+//   * one finger drag on background  -> onPan
+//   * two fingers on background      -> onPinch (+ pan with the midpoint)
+//   * double tap on background       -> onDoubleTap
+class PanZoom : public juce::MouseListener
+{
+public:
+  std::function<bool(juce::Component*)> isBackground;
+  std::function<juce::Point<float>(juce::Point<float> screenPos)> toLocal;
+  std::function<void(juce::Point<float> deltaPx)> onPan;
+  std::function<void(float factor, juce::Point<float> focalPx)> onPinch;
+  std::function<void(juce::Point<float> focalPx)> onDoubleTap;
+
+  void mouseDown(const juce::MouseEvent& e) override
+  {
+    if (!isBackground || !isBackground(e.eventComponent)) return;
+    mPts[e.source.getIndex()] = local(e);
+  }
+  void mouseDrag(const juce::MouseEvent& e) override
+  {
+    auto it = mPts.find(e.source.getIndex());
+    if (it == mPts.end()) return;
+    auto now = local(e);
+    if (mPts.size() == 1)
+    {
+      if (onPan) onPan(now - it->second);
+      it->second = now;
+    }
+    else if (mPts.size() >= 2)
+    {
+      auto a = mPts.begin(), b = std::next(a);
+      auto oldA = a->second, oldB = b->second;
+      it->second = now;
+      auto newA = a->second, newB = b->second;
+      float d0 = oldA.getDistanceFrom(oldB), d1 = newA.getDistanceFrom(newB);
+      auto midOld = (oldA + oldB) * 0.5f, midNew = (newA + newB) * 0.5f;
+      if (d0 > 20.f && onPinch) onPinch(d1 / d0, midNew);
+      if (onPan) onPan(midNew - midOld);
+    }
+  }
+  void mouseUp(const juce::MouseEvent& e) override { mPts.erase(e.source.getIndex()); }
+  void mouseDoubleClick(const juce::MouseEvent& e) override
+  {
+    if (isBackground && isBackground(e.eventComponent) && onDoubleTap) onDoubleTap(local(e));
+  }
+
+private:
+  juce::Point<float> local(const juce::MouseEvent& e) const
+  {
+    auto p = e.source.getScreenPosition();
+    return toLocal ? toLocal(p) : p;
+  }
+  std::map<int, juce::Point<float>> mPts;
 };
 
 } // namespace kr106touch

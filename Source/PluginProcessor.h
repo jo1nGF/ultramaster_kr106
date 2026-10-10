@@ -37,6 +37,8 @@ enum EParams
   kSettingOscMode,      // 0 = wavetable+upsample, 1 = polyBLEP at Nx
   // Tape delay (appended last so older states/presets keep their indices)
   kDelayTime, kDelayFeedback, kDelayMix, kDelayTone, kDelayWow,
+  // Added later (also appended, same reason): wow speed, arpeggiator patterns
+  kDelayWowRate, kArpPattern, kArpShLoop,
   kNumParams
 };
 

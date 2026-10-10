@@ -40,8 +40,64 @@ public:
     // per gesture rather than on every drag-pixel value change.
     std::function<void()> onDragEnd;
 
+    // Touch UI: knobs are scaled up ~2-2.6x, so the 1x bitmap sprites look soft.
+    // Draw them as vectors instead (crisp at any size): value arc + metal cap + pointer.
+    void paintVectorKnob(juce::Graphics& g)
+    {
+        const float val = mParam ? juce::jlimit(0.f, 1.f, mParam->getValue()) : 0.f;
+        const auto c = getLocalBounds().toFloat().getCentre();
+        const float rCap = 7.4f, rArc = 11.0f;
+        const float a0 = juce::degreesToRadians(-135.f), a1 = juce::degreesToRadians(135.f);
+        const float ang = a0 + (a1 - a0) * val;
+        const juce::PathStrokeType arcStroke(2.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded);
+
+        juce::Path track;
+        track.addCentredArc(c.x, c.y, rArc, rArc, 0.f, a0, a1, true);
+        g.setColour(juce::Colour(0xff161616));
+        g.strokePath(track, arcStroke);
+        if (val > 0.004f)
+        {
+            juce::Path on;
+            on.addCentredArc(c.x, c.y, rArc, rArc, 0.f, a0, ang, true);
+            g.setColour(juce::Colour(0xffc60a0a));
+            g.strokePath(on, arcStroke);
+        }
+
+        // soft drop shadow, then the cap
+        g.setColour(juce::Colours::black.withAlpha(0.45f));
+        g.fillEllipse(c.x - rCap - 0.4f, c.y - rCap + 0.9f, 2.f * (rCap + 0.4f), 2.f * (rCap + 0.4f));
+        juce::ColourGradient cap(juce::Colour(0xfff4f4f4), c.x - rCap * 0.45f, c.y - rCap * 0.6f,
+                                 juce::Colour(0xff7d7d7d), c.x + rCap * 0.8f, c.y + rCap * 0.9f, true);
+        g.setGradientFill(cap);
+        g.fillEllipse(c.x - rCap, c.y - rCap, 2.f * rCap, 2.f * rCap);
+        g.setColour(juce::Colour(0xff0e0e0e));
+        g.drawEllipse(c.x - rCap, c.y - rCap, 2.f * rCap, 2.f * rCap, 0.9f);
+        // inner ring for a machined look
+        g.setColour(juce::Colours::white.withAlpha(0.35f));
+        g.drawEllipse(c.x - rCap + 1.3f, c.y - rCap + 1.3f, 2.f * rCap - 2.6f, 2.f * rCap - 2.6f, 0.5f);
+
+        // pointer
+        const float dx = std::sin(ang), dy = -std::cos(ang);
+        juce::Path ptr;
+        ptr.startNewSubPath(c.x + dx * rCap * 0.18f, c.y + dy * rCap * 0.18f);
+        ptr.lineTo(c.x + dx * rCap * 0.86f, c.y + dy * rCap * 0.86f);
+        g.setColour(juce::Colour(0xff121212));
+        g.strokePath(ptr, juce::PathStrokeType(1.7f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+    }
+
     void paint(juce::Graphics& g) override
     {
+        if constexpr (kr106touch::kEnabled)
+        {
+            paintVectorKnob(g);
+            if (mProcessor && mParamIdx >= 0
+                && mProcessor->mMidiLearnParam.load(std::memory_order_relaxed) == mParamIdx)
+            {
+                g.setColour(juce::Colour(0, 255, 0));
+                g.drawEllipse(getLocalBounds().toFloat().reduced(0.8f), 1.2f);
+            }
+            return;
+        }
         float val = mParam ? mParam->getValue() : 0.f;
         int maxIdx = mNumFrames - 1;
         int idx = (int)std::round(val * (float)maxIdx);
@@ -103,7 +159,7 @@ public:
     {
         if (!kr106touch::kEnabled) return juce::Component::hitTest(x, y);
         return juce::Point<float>((float) x, (float) y)
-                   .getDistanceFrom(getLocalBounds().getCentre().toFloat()) <= 8.5f;
+                   .getDistanceFrom(getLocalBounds().getCentre().toFloat()) <= 10.f;
     }
 
     void mouseDown(const juce::MouseEvent& e) override

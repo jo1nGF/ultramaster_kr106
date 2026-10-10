@@ -2,12 +2,15 @@
 
 #include <algorithm>
 #include <atomic>
+#include <cmath>
 #include <cstdint>
 #include <vector>
 
 // KR-106 arpeggiator
 //
-// Modes: Up, Up/Down, Down
+// Modes (hardware switch): Up, Up/Down, Down
+// Patterns (extension, see ArpPattern): As Played, Random S&H (free or looping
+// cycles), Random Walk, Converge, Diverge, Pedal, Up/Down inclusive, Down/Up.
 // Range: 1 oct (held notes only), 2 oct, Full (3 oct)
 // Rate: steps per minute (from slider, 60-960 BPM)
 //
@@ -62,6 +65,50 @@ static inline float sliderFromDivision(int d)
   return static_cast<float>(d) / static_cast<float>(kNumArpDivisions - 1);
 }
 
+// ---------------------------------------------------------------------------
+// Extra patterns. 0 = Classic: the hardware Mode switch (Up / Up-Down / Down)
+// decides, exactly like the original. Everything else ignores that switch.
+// ---------------------------------------------------------------------------
+enum ArpPattern
+{
+  kPatClassic = 0,
+  kPatUpDownIncl,   // up then down, end notes play twice
+  kPatDownUp,       // starts descending
+  kPatAsPlayed,     // order the keys were pressed
+  kPatRandomSH,     // random note per step (sample & hold); see ArpShLoop
+  kPatRandomWalk,   // random +-1 steps through the sequence
+  kPatConverge,     // outside-in: low, high, 2nd low, 2nd high ...
+  kPatDiverge,      // inside-out (reverse of converge)
+  kPatPedal,        // lowest note alternating with the ascending sequence
+  kNumArpPatterns
+};
+
+static constexpr const char* kPatternNames[kNumArpPatterns] = {
+  "Classic (Mode)", "Up/Down incl.", "Down/Up", "As played", "Random S&H",
+  "Random walk", "Converge", "Diverge", "Pedal"
+};
+
+// Sample & hold cycle: 0 = free-running (a new random value every step).
+// Otherwise the sampled values are held in a loop of N steps that repeats;
+// "evolving" loops re-sample a step now and then, so the pattern mutates.
+struct ArpShLoopDef { int length; float evolve; const char* name; };
+static constexpr int kNumShLoops = 13;
+static constexpr ArpShLoopDef kShLoops[kNumShLoops] = {
+  {  0, 0.f,   "Free" },
+  {  2, 0.f,   "Loop 2" },  {  3, 0.f, "Loop 3" },  { 4, 0.f, "Loop 4" },
+  {  5, 0.f,   "Loop 5" },  {  6, 0.f, "Loop 6" },  { 7, 0.f, "Loop 7" },
+  {  8, 0.f,   "Loop 8" },  { 12, 0.f, "Loop 12" }, { 16, 0.f, "Loop 16" },
+  {  4, 0.25f, "Evolve 4" }, { 8, 0.25f, "Evolve 8" }, { 16, 0.25f, "Evolve 16" }
+};
+
+// Parameter value (0..1) <-> index helpers for the two discrete params
+static inline int patternFromValue(float v)
+{ return std::max(0, std::min(kNumArpPatterns - 1, static_cast<int>(std::round(v * (kNumArpPatterns - 1))))); }
+static inline float valueFromPattern(int i) { return static_cast<float>(i) / (kNumArpPatterns - 1); }
+static inline int shLoopFromValue(float v)
+{ return std::max(0, std::min(kNumShLoops - 1, static_cast<int>(std::round(v * (kNumShLoops - 1))))); }
+static inline float valueFromShLoop(int i) { return static_cast<float>(i) / (kNumShLoops - 1); }
+
 struct Arpeggiator
 {
   bool mEnabled = false;
@@ -115,6 +162,40 @@ struct Arpeggiator
   }
 
   std::vector<int> mHeldNotes; // sorted ascending
+  std::vector<int> mPlayOrder; // same notes, in the order they were pressed
+
+  // Extension state
+  int mPattern = 0;                 // ArpPattern
+  int mShLoop = 0;                  // index into kShLoops
+  uint32_t mRng = 0x2545F491u;
+  float mShBuf[16] = {};            // held random values of the current cycle
+  bool mShValid[16] = {};
+  int mShPos = 0;
+  int mWalkPos = 0;
+  int mCounter = 0;                 // step counter for the patterned modes
+
+  float Rand()                      // 0..1
+  {
+    mRng = mRng * 1664525u + 1013904223u;
+    return static_cast<float>(mRng >> 8) * (1.f / 16777216.f);
+  }
+  void SetShLoop(int idx)
+  {
+    idx = std::max(0, std::min(kNumShLoops - 1, idx));
+    if (idx != mShLoop) { mShLoop = idx; ResetSh(); }
+  }
+  void ResetSh() { mShPos = 0; for (bool& v : mShValid) v = false; }
+  // Next sample & hold value (0..1)
+  float NextSh()
+  {
+    const auto& d = kShLoops[mShLoop];
+    if (d.length == 0) return Rand();            // free-running S&H
+    int i = mShPos % d.length;
+    if (!mShValid[i]) { mShBuf[i] = Rand(); mShValid[i] = true; }
+    else if (d.evolve > 0.f && Rand() < d.evolve) mShBuf[i] = Rand();   // mutate this step
+    mShPos = (i + 1) % d.length;
+    return mShBuf[i];
+  }
 
   Arpeggiator() { mHeldNotes.reserve(128); }
   int mStepIndex = 0;
@@ -131,6 +212,7 @@ struct Arpeggiator
     auto it = std::lower_bound(mHeldNotes.begin(), mHeldNotes.end(), note);
     if (it != mHeldNotes.end() && *it == note) return; // already held
     mHeldNotes.insert(it, note);
+    mPlayOrder.push_back(note);
 
     // First note in: trigger immediately on next process call
     if (mHeldNotes.size() == 1)
@@ -138,6 +220,9 @@ struct Arpeggiator
       mPhase = 1.f;
       mStepIndex = 0;
       mDirection = 1;
+      mCounter = 0;
+      mWalkPos = 0;
+      mShPos = 0;          // loops restart together with the first note
     }
   }
 
@@ -146,6 +231,10 @@ struct Arpeggiator
     auto it = std::find(mHeldNotes.begin(), mHeldNotes.end(), note);
     if (it != mHeldNotes.end())
       mHeldNotes.erase(it);
+    {
+      auto po = std::find(mPlayOrder.begin(), mPlayOrder.end(), note);
+      if (po != mPlayOrder.end()) mPlayOrder.erase(po);
+    }
 
     if (mHeldNotes.empty())
     {
@@ -158,6 +247,8 @@ struct Arpeggiator
   void Reset()
   {
     mHeldNotes.clear();
+    mPlayOrder.clear();
+    mCounter = 0; mWalkPos = 0; mShPos = 0;
     mStepIndex = 0;
     mDirection = 1;
     mPhase = 0.f;
@@ -186,13 +277,15 @@ struct Arpeggiator
     return count;
   }
 
-  // Note at ascending index in the full sequence
-  int SeqNote(int idx) const
+  // Note at ascending index in the full sequence (base = held notes sorted,
+  // or in play order for "As played")
+  int SeqNote(int idx) const { return SeqNoteFrom(mHeldNotes, idx); }
+  int SeqNoteFrom(const std::vector<int>& base, int idx) const
   {
     int i = 0;
     int octaves = mRange + 1;
     for (int oct = 0; oct < octaves; oct++)
-      for (int n : mHeldNotes)
+      for (int n : base)
       {
         int note = n + oct * 12;
         if (mLimitToKeyboard)
@@ -218,6 +311,9 @@ struct Arpeggiator
     // Clamp after sequence changes
     if (mStepIndex >= len) mStepIndex = 0;
     if (mStepIndex < 0) mStepIndex = len - 1;
+
+    if (mPattern != kPatClassic)
+      return NextPatternNote(len);
 
     int note;
     switch (mMode)
@@ -246,6 +342,58 @@ struct Arpeggiator
         note = SeqNote(0);
     }
     return note;
+  }
+
+  // Extra patterns (everything except Classic)
+  int NextPatternNote(int len)
+  {
+    if (len <= 0) return -1;
+    int c = mCounter++;
+    auto at = [&](int idx) { return SeqNote(std::max(0, std::min(len - 1, idx))); };
+    switch (mPattern)
+    {
+      case kPatUpDownIncl:                   // 0..len-1, len-1..0 (period 2*len)
+      {
+        int k = c % (2 * len);
+        return at(k < len ? k : 2 * len - 1 - k);
+      }
+      case kPatDownUp:                       // len-1..0..len-1 without repeating the ends
+      {
+        if (len == 1) return at(0);
+        int per = 2 * len - 2, k = c % per;
+        return at(k < len ? len - 1 - k : k - len + 1);
+      }
+      case kPatAsPlayed:
+        return SeqNoteFrom(mPlayOrder, c % len);
+      case kPatRandomSH:
+        return at(static_cast<int>(NextSh() * static_cast<float>(len)));
+      case kPatRandomWalk:
+      {
+        float r = Rand();
+        int step = r < 0.4f ? 1 : r < 0.8f ? -1 : 0;   // sometimes repeats the note
+        mWalkPos += step;
+        if (mWalkPos >= len) mWalkPos = std::max(0, len - 2);   // bounce at the ends
+        if (mWalkPos < 0) mWalkPos = std::min(1, len - 1);
+        return at(mWalkPos);
+      }
+      case kPatConverge:                     // 0, len-1, 1, len-2, ...
+      {
+        int k = c % len;
+        return at((k & 1) ? len - 1 - k / 2 : k / 2);
+      }
+      case kPatDiverge:                      // reverse of converge: inside-out
+      {
+        int k = (len - 1) - (c % len);
+        return at((k & 1) ? len - 1 - k / 2 : k / 2);
+      }
+      case kPatPedal:                        // lowest note between every step
+      {
+        int k = c % (2 * len);
+        return (k & 1) ? at(k / 2) : at(0);
+      }
+      default:
+        return at(0);
+    }
   }
 
   // Process one block. Calls noteOn(noteNum, sampleOffset) and

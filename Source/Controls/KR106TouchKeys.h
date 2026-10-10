@@ -21,11 +21,12 @@ public:
     : mText(text), mOnClick(std::move(onClick)), mFill(fill) {}
 
   void setText(const juce::String& t) { mText = t; repaint(); }
+  void setActive(bool a) { mActive = a; repaint(); }
 
   void paint(juce::Graphics& g) override
   {
     auto r = getLocalBounds().toFloat().reduced(1.f);
-    g.setColour(mDown ? mFill.brighter(0.4f) : mFill);
+    g.setColour(mActive ? juce::Colour(0xff9a0e0e) : (mDown ? mFill.brighter(0.4f) : mFill));
     g.fillRoundedRectangle(r, 4.f);
     g.setColour(juce::Colour(0xff8a8a8a));
     g.drawRoundedRectangle(r, 4.f, 1.f);
@@ -44,7 +45,49 @@ private:
   juce::String mText;
   std::function<void()> mOnClick;
   juce::Colour mFill;
-  bool mDown = false;
+  bool mDown = false, mActive = false;
+};
+
+// ---------------------------------------------------------------------------
+// Two-line selector button: small caption on top, current value below.
+// Used for the arpeggiator pattern and S&H cycle (tap opens a list).
+class KR106TouchChoice : public juce::Component
+{
+public:
+  KR106TouchChoice(const juce::String& caption, std::function<juce::String()> valueText,
+                   std::function<void()> onClick)
+    : mCaption(caption), mValue(std::move(valueText)), mOnClick(std::move(onClick)) {}
+
+  void setEnabledLook(bool e) { if (e != mEnabledLook) { mEnabledLook = e; repaint(); } }
+  juce::String currentText() const { return mValue ? mValue() : juce::String(); }
+  void refresh() { repaint(); }
+
+  void paint(juce::Graphics& g) override
+  {
+    auto r = getLocalBounds().toFloat().reduced(0.75f);
+    g.setColour(mDown ? juce::Colour(0xff4a4a4a) : juce::Colour(0xff262626));
+    g.fillRoundedRectangle(r, 4.f);
+    g.setColour(juce::Colour(0xff14388f));
+    g.drawRoundedRectangle(r, 4.f, 1.f);
+    g.setColour(juce::Colours::white.withAlpha(mEnabledLook ? 0.65f : 0.3f));
+    g.setFont(juce::FontOptions(8.5f));
+    g.drawText(mCaption, getLocalBounds().withTrimmedTop(2).withHeight(11), juce::Justification::centred);
+    g.setColour(juce::Colours::white.withAlpha(mEnabledLook ? 1.f : 0.45f));
+    g.setFont(juce::FontOptions(11.f));
+    g.drawText(currentText(), getLocalBounds().withTrimmedTop(12), juce::Justification::centred);
+  }
+  void mouseDown(const juce::MouseEvent&) override { mDown = true; repaint(); }
+  void mouseUp(const juce::MouseEvent& e) override
+  {
+    mDown = false; repaint();
+    if (getLocalBounds().contains(e.getPosition()) && mOnClick) mOnClick();
+  }
+
+private:
+  juce::String mCaption;
+  std::function<juce::String()> mValue;
+  std::function<void()> mOnClick;
+  bool mDown = false, mEnabledLook = true;
 };
 
 // ---------------------------------------------------------------------------

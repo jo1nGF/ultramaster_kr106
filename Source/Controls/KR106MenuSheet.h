@@ -2,6 +2,7 @@
 
 #include <juce_gui_basics/juce_gui_basics.h>
 #include "BinaryData.h"
+#include "KR106Touch.h"
 #include <functional>
 #include <vector>
 
@@ -20,10 +21,10 @@ namespace KR106Theme
     inline juce::Colour grid()      { return juce::Colour(0, 40, 0); }
     inline juce::Colour border()    { return juce::Colour(0, 100, 0); }
 
-    inline juce::Font ledFont(juce::Typeface::Ptr tf)
+    inline juce::Font ledFont(juce::Typeface::Ptr tf, float height = 8.f)
     {
         return juce::Font(juce::FontOptions(tf)
-            .withMetricsKind(juce::TypefaceMetricsKind::legacy)).withHeight(8.f);
+            .withMetricsKind(juce::TypefaceMetricsKind::legacy)).withHeight(height);
     }
 
     // Draw a single cell: hover fill + coloured text at baseline
@@ -92,7 +93,10 @@ struct KR106MenuItem
 class KR106MenuSheet : public juce::Component
 {
 public:
-    static constexpr int kRowH = 14;
+    // Touch UI: taller rows and a bigger LED font so items are easy to hit and read
+    static constexpr int kRowH = kr106touch::kEnabled ? 22 : 14;
+    static constexpr float kFontH = kr106touch::kEnabled ? 12.f : 8.f;
+    static constexpr int kTextOff = kr106touch::kEnabled ? 6 : KR106Theme::kTextOffset;
     static constexpr int kSepH = 1;
     static constexpr int kPadX = 6;
     static constexpr int kPadY = 2;
@@ -154,7 +158,7 @@ public:
     int columnWidth(int from, int to) const
     {
         auto font = juce::Font(juce::FontOptions(mTypeface)
-            .withMetricsKind(juce::TypefaceMetricsKind::legacy)).withHeight(8.f);
+            .withMetricsKind(juce::TypefaceMetricsKind::legacy)).withHeight(kFontH);
         bool ticked = hasAnyTicked();
         int maxW = 0;
         for (int i = from; i < to; i++)
@@ -184,7 +188,7 @@ public:
     {
         g.setColour(KR106Theme::bg());
         g.fillRect(mMenuBounds);
-        g.setFont(KR106Theme::ledFont(mTypeface));
+        g.setFont(KR106Theme::ledFont(mTypeface, kFontH));
 
         bool anyTicked = hasAnyTicked();
 
@@ -225,7 +229,7 @@ public:
                 if (!item.enabled)
                 {
                     g.setColour(KR106Theme::disabled());
-                    g.drawSingleLineText(label, colX + kPadX, y + kRowH - KR106Theme::kTextOffset);
+                    g.drawSingleLineText(label, colX + kPadX, y + kRowH - kTextOff);
                 }
                 else
                 {
@@ -235,7 +239,7 @@ public:
                         g.fillRect(colX, y, colW, kRowH);
                     }
                     g.setColour(KR106Theme::bright());
-                    g.drawSingleLineText(label, colX + kPadX, y + kRowH - KR106Theme::kTextOffset);
+                    g.drawSingleLineText(label, colX + kPadX, y + kRowH - kTextOff);
                 }
 
                 y += kRowH;

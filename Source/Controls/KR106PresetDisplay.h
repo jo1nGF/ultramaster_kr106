@@ -4,6 +4,7 @@
 #include "BinaryData.h"
 #include "PluginProcessor.h"
 #include "KR106MenuSheet.h"
+#include "KR106Touch.h"
 
 // ============================================================================
 // KR106PresetSheet — full-screen overlay showing all 128 presets in 8 columns
@@ -504,6 +505,13 @@ private:
         auto displayInTarget = target->getLocalArea(this, getLocalBounds());
         int menuX = displayInTarget.getX() - menuW;
         int menuY = (target->getHeight() - menuH) / 2;
+        if constexpr (kr106touch::kEnabled)
+        {
+            // Touch layout: the display sits at the top-left, so open the menu right
+            // below it (the desktop position, left of the display, is off-screen here).
+            menuX = juce::jlimit(0, juce::jmax(0, target->getWidth() - menuW), displayInTarget.getX());
+            menuY = juce::jlimit(0, juce::jmax(0, target->getHeight() - menuH), displayInTarget.getBottom() + 4);
+        }
 
         target->addAndMakeVisible(mContextMenu.get());
         mContextMenu->showAt({ menuX, menuY, menuW, menuH });

@@ -4,6 +4,7 @@
 #include <juce_audio_processors/juce_audio_processors.h>
 
 #include "KR106Tooltip.h"
+#include "KR106Touch.h"
 #include "PluginProcessor.h"
 
 // Draw a 3D bevel button (pixel-perfect, no AA).
@@ -23,6 +24,22 @@ static inline void DrawKR106Button(juce::Graphics& g, float l, float t, float r,
     const auto hi = pressed ? c.shadow : c.highlight;
     const auto lo = pressed ? c.highlight : c.shadow;
     const auto black = juce::Colour(0, 0, 0);
+
+    if constexpr (kr106touch::kEnabled)
+    {
+        // Touch UI: rounded, anti-aliased key with a soft top-to-bottom gradient
+        juce::Rectangle<float> R(l, t, r - l, b - t);
+        g.setColour(black);
+        g.fillRoundedRectangle(R, 3.f);
+        auto F = R.reduced(1.1f);
+        auto top = pressed ? c.shadow : c.highlight.interpolatedWith(c.face, 0.45f);
+        auto bot = pressed ? c.face   : c.shadow.interpolatedWith(c.face, 0.35f);
+        g.setGradientFill(juce::ColourGradient(top, F.getX(), F.getY(), bot, F.getX(), F.getBottom(), false));
+        g.fillRoundedRectangle(F, 2.2f);
+        g.setColour(hi.withAlpha(pressed ? 0.25f : 0.8f));
+        g.fillRoundedRectangle(F.getX() + 1.4f, F.getY() + 0.7f, F.getWidth() - 2.8f, 0.9f, 0.45f);
+        return;
+    }
 
     // Face fill
     g.setColour(c.face);
@@ -73,6 +90,33 @@ public:
         // ledImage is 18x36 @2x, 2 frames stacked vertically
         bool powered = mPowerParam && mPowerParam->getValue() > 0.5f;
         bool on = powered && mParam && mParam->getValue() > 0.5f;
+
+        if constexpr (kr106touch::kEnabled)
+        {
+            // Vector LED with a soft glow when lit (touch UI)
+            const juce::Point<float> c(8.5f, 4.5f);
+            const float r = 3.5f;
+            if (on)
+            {
+                g.setGradientFill(juce::ColourGradient(juce::Colour(0x66ff3020), c.x, c.y,
+                                                       juce::Colour(0x00ff3020), c.x + r + 2.6f, c.y, true));
+                g.fillEllipse(c.x - r - 2.6f, c.y - r - 2.6f, 2.f * (r + 2.6f), 2.f * (r + 2.6f));
+            }
+            g.setColour(juce::Colour(0xff150404));
+            g.fillEllipse(c.x - r - 0.9f, c.y - r - 0.9f, 2.f * (r + 0.9f), 2.f * (r + 0.9f));
+            g.setGradientFill(on
+                ? juce::ColourGradient(juce::Colour(0xffff9a8a), c.x - 1.f, c.y - 1.2f, juce::Colour(0xffe01408), c.x + r, c.y + r, true)
+                : juce::ColourGradient(juce::Colour(0xff6a2020), c.x - 1.f, c.y - 1.2f, juce::Colour(0xff2a0808), c.x + r, c.y + r, true));
+            g.fillEllipse(c.x - r, c.y - r, 2.f * r, 2.f * r);
+            DrawKR106Button(g, 0.f, 9.f, 17.f, 28.f, mButtonType, mPressed);
+            if (mProcessor && mParamIdx >= 0
+                && mProcessor->mMidiLearnParam.load(std::memory_order_relaxed) == mParamIdx)
+            {
+                g.setColour(juce::Colour(0, 255, 0));
+                g.drawRoundedRectangle(getLocalBounds().toFloat().reduced(0.6f), 3.f, 1.2f);
+            }
+            return;
+        }
 
         int frameW2x = mLedImage.getWidth();   // 18
         int frameH2x = mLedImage.getHeight() / 2; // 18 per frame

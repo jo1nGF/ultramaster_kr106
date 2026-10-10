@@ -37,8 +37,41 @@ public:
     }
   }
 
+  // Touch UI: smooth vector groove + handle (the 1x bitmap handle gets soft when scaled up)
+  void paintVectorFader(juce::Graphics& g)
+  {
+    paintTickMarks(g);
+    // groove
+    auto well = juce::Rectangle<float>(7.f, 0.5f, 5.f, 48.f);
+    g.setColour(juce::Colour(0xff060606));
+    g.fillRoundedRectangle(well, 2.4f);
+    g.setColour(juce::Colour(0xff303030));
+    g.drawRoundedRectangle(well, 2.4f, 0.6f);
+    g.setColour(juce::Colour(0xff000000));
+    g.fillRect(9.f, 2.f, 1.f, 45.f);
+
+    // handle
+    const float val = mParam ? juce::jlimit(0.f, 1.f, mParam->getValue()) : 0.f;
+    const float cy = 44.f - val * 40.f + 1.f;
+    juce::Rectangle<float> h(2.f, cy - 4.5f, 15.f, 9.f);
+    g.setColour(juce::Colours::black.withAlpha(0.45f));
+    g.fillRoundedRectangle(h.translated(0.f, 1.2f), 2.f);
+    juce::ColourGradient body(juce::Colour(0xfff6f6f6), h.getX(), h.getY(),
+                              juce::Colour(0xff9c9c9c), h.getX(), h.getBottom(), false);
+    g.setGradientFill(body);
+    g.fillRoundedRectangle(h, 2.f);
+    g.setColour(juce::Colour(0xff0c0c0c));
+    g.drawRoundedRectangle(h, 2.f, 0.9f);
+    g.setColour(juce::Colour(0xff222222));
+    g.fillRect(h.getX() + 1.8f, cy - 0.3f, h.getWidth() - 3.6f, 0.7f);     // centre groove
+    g.setColour(juce::Colours::white.withAlpha(0.9f));
+    g.fillRect(h.getX() + 1.8f, cy - 1.3f, h.getWidth() - 3.6f, 0.6f);     // highlight
+    paintMidiLearnBorder(g);
+  }
+
   void paint(juce::Graphics& g) override
   {
+    if constexpr (kr106touch::kEnabled) { paintVectorFader(g); return; }
     paintTickMarks(g);
 
     auto hLine = [&](juce::Colour c, float x1, float y, float x2) {

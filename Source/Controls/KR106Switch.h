@@ -2,6 +2,7 @@
 
 #include <juce_gui_basics/juce_gui_basics.h>
 #include <juce_audio_processors/juce_audio_processors.h>
+#include "KR106Touch.h"
 
 #include "KR106Tooltip.h"
 #include "PluginProcessor.h"
@@ -32,6 +33,33 @@ public:
         float val = mParam ? mParam->getValue() : 0.f;
         int pos = (int)std::round(val * (mNumPositions - 1));
         pos = juce::jlimit(0, mNumPositions - 1, pos);
+
+        if constexpr (kr106touch::kEnabled)
+        {
+            // Vector toggle (touch UI): slot + metal thumb that slides to the position
+            auto r = getLocalBounds().toFloat();
+            auto slot = r.reduced(0.6f);
+            g.setColour(juce::Colour(0xff060606));
+            g.fillRoundedRectangle(slot, slot.getWidth() * 0.45f);
+            g.setColour(juce::Colour(0xff7a7a7a));
+            g.drawRoundedRectangle(slot, slot.getWidth() * 0.45f, 0.8f);
+            const float t = mNumPositions > 1 ? (float) pos / (float)(mNumPositions - 1) : 0.f;
+            const float th = 9.5f, tw = r.getWidth() - 2.2f;
+            const float ty = 1.1f + t * (r.getHeight() - 2.2f - th);
+            juce::Rectangle<float> thumb(1.1f, ty, tw, th);
+            juce::ColourGradient grad(juce::Colour(0xfff2f2f2), thumb.getX(), thumb.getY(),
+                                      juce::Colour(0xff8c8c8c), thumb.getX(), thumb.getBottom(), false);
+            g.setColour(juce::Colours::black.withAlpha(0.4f));
+            g.fillRoundedRectangle(thumb.translated(0.f, 0.9f), 2.f);
+            g.setGradientFill(grad);
+            g.fillRoundedRectangle(thumb, 2.f);
+            g.setColour(juce::Colour(0xff111111));
+            g.drawRoundedRectangle(thumb, 2.f, 0.8f);
+            g.setColour(juce::Colour(0xff2a2a2a));
+            g.fillRect(thumb.getX() + 1.2f, thumb.getCentreY() - 0.3f, thumb.getWidth() - 2.4f, 0.7f);
+            paintMidiLearnBorder(g);
+            return;
+        }
 
         // Map position to sprite frame: 2-way uses frames 0,2; 3-way uses 0,1,2
         int spriteIdx = (mNumPositions == 2) ? (pos == 0 ? 0 : 2) : pos;
@@ -186,6 +214,33 @@ public:
         float val = mParam ? mParam->getValue() : 0.f;
         int pos = (int)std::round(val * (mNumPositions - 1));
         pos = juce::jlimit(0, mNumPositions - 1, pos);
+
+        if constexpr (kr106touch::kEnabled)
+        {
+            // Vector horizontal toggle (touch UI)
+            auto r = getLocalBounds().toFloat();
+            auto slot = r.reduced(0.6f);
+            g.setColour(juce::Colour(0xff060606));
+            g.fillRoundedRectangle(slot, slot.getHeight() * 0.45f);
+            g.setColour(juce::Colour(0xff7a7a7a));
+            g.drawRoundedRectangle(slot, slot.getHeight() * 0.45f, 0.8f);
+            const float t = mNumPositions > 1 ? (float) pos / (float)(mNumPositions - 1) : 0.f;
+            const float tw = 9.5f, th = r.getHeight() - 2.2f;
+            const float tx = 1.1f + t * (r.getWidth() - 2.2f - tw);
+            juce::Rectangle<float> thumb(tx, 1.1f, tw, th);
+            juce::ColourGradient grad(juce::Colour(0xfff2f2f2), thumb.getX(), thumb.getY(),
+                                      juce::Colour(0xff8c8c8c), thumb.getX(), thumb.getBottom(), false);
+            g.setColour(juce::Colours::black.withAlpha(0.4f));
+            g.fillRoundedRectangle(thumb.translated(0.f, 0.8f), 2.f);
+            g.setGradientFill(grad);
+            g.fillRoundedRectangle(thumb, 2.f);
+            g.setColour(juce::Colour(0xff111111));
+            g.drawRoundedRectangle(thumb, 2.f, 0.8f);
+            g.setColour(juce::Colour(0xff2a2a2a));
+            g.fillRect(thumb.getCentreX() - 0.3f, thumb.getY() + 1.f, 0.7f, thumb.getHeight() - 2.f);
+            paintMidiLearnBorder(g);
+            return;
+        }
 
         // Map position to sprite frame: 2-way uses frames 0,2; 3-way uses 0,1,2
         int spriteIdx = (mNumPositions == 2) ? (pos == 0 ? 0 : 2) : pos;
