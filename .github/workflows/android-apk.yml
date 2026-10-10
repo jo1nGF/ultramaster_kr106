@@ -10,12 +10,12 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Fetch JUCE (only the submodule we need)
         run: git submodule update --init --depth 1 libs/JUCE
 
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '17'
@@ -56,6 +56,24 @@ jobs:
 
       - name: Generate the Gradle project from KR106Touch.jucer
         run: xvfb-run -a build-projucer/extras/Projucer/Projucer_artefacts/Release/Projucer --resave KR106Touch.jucer
+
+      - name: Check app sources with the NDK compiler (lists ALL errors at once)
+        continue-on-error: true
+        run: |
+          NDK="$ANDROID_HOME/ndk/28.1.13356709/toolchains/llvm/prebuilt/linux-x86_64"
+          DEFS="-DJUCE_ANDROID=1 -DJUCE_ANDROID_API_VERSION=24 -DJUCE_ANDROID_GL_ES_VERSION_3_0=1 -DJUCE_GLOBAL_MODULE_SETTINGS_INCLUDED=1 -DJUCE_STANDALONE_APPLICATION=1 -DJUCE_USE_ANDROID_OBOE=1 -DJUCE_USE_CURL=0 -DJUCE_WEB_BROWSER=0 -DKR106_TOUCH=1 -DNDEBUG=1 -D_USE_MATH_DEFINES -DJUCE_APP_VERSION=2.5.13"
+          for m in audio_basics audio_devices audio_formats audio_processors audio_processors_headless audio_utils core data_structures dsp events graphics gui_basics gui_extra; do
+            DEFS="$DEFS -DJUCE_MODULE_AVAILABLE_juce_$m=1"
+          done
+          fail=0
+          for f in android/Main.cpp Source/PluginProcessor.cpp Source/PluginEditor.cpp; do
+            echo "=== $f"
+            "$NDK/bin/clang++" --target=aarch64-none-linux-android24 --sysroot="$NDK/sysroot" \
+              -fsyntax-only -std=c++17 -fsigned-char -fexceptions -frtti $DEFS \
+              -IJuceLibraryCode -Ilibs/JUCE/modules -ISource -ISource/DSP -ISource/Controls \
+              -Ilibs/JUCE/modules/juce_audio_devices/native/oboe/include "$f" 2>&1 | grep -E "error|warning: unused" | head -40 || true
+          done
+          echo "(check finished - errors above, if any, are all errors of the 3 app files)"
 
       - name: Build release APK (arm64-v8a)
         working-directory: Builds/Android
