@@ -41,7 +41,7 @@ mods = ["juce_audio_basics","juce_audio_devices","juce_audio_formats","juce_audi
         "juce_dsp","juce_events","juce_graphics","juce_gui_basics","juce_gui_extra"]
 
 defines = "\n".join(["KR106_TOUCH=1","JUCE_WEB_BROWSER=0","JUCE_USE_CURL=0","_USE_MATH_DEFINES"])
-hdr = "Source\nSource/DSP\nSource/Controls\n."
+hdr = "../../Source\n../../Source/DSP\n../../Source/Controls"
 modpaths = "\n".join(f'        <MODULEPATH id="{m}" path="libs/JUCE/modules"/>' for m in mods)
 
 xml = f'''<?xml version="1.0" encoding="UTF-8"?>

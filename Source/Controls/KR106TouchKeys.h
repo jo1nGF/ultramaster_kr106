@@ -6,7 +6,10 @@
 // octave shift, and an optional pitch-bender lever.
 
 #include <juce_gui_basics/juce_gui_basics.h>
+#include <cstdint>
+#include <functional>
 #include <map>
+#include <memory>
 #include "../PluginProcessor.h"
 
 // ---------------------------------------------------------------------------

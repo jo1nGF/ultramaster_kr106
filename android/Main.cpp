@@ -111,7 +111,7 @@ class KR106App : public juce::JUCEApplication
 {
 public:
   const juce::String getApplicationName() override    { return "Ultramaster KR-106"; }
-  const juce::String getApplicationVersion() override { return JucePlugin_VersionString; }
+  const juce::String getApplicationVersion() override { return "2.5.13-touch"; }
   bool moreThanOneInstanceAllowed() override          { return false; }
 
   void initialise(const juce::String&) override
