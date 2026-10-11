@@ -34,9 +34,22 @@ Menu da engrenagem > 100% / 150% / 200% / 300%, ou com gestos: pinça com dois d
 vazias (entre os painéis), toque duplo numa área vazia para alternar 100% <-> 200%.
 Com zoom, arraste o dedo numa área sem controles para mover a visualização.
 
+## Estados (Options)
+
+Engrenagem > "Options: State, Audio, MIDI". Na seção State:
+
+- **Save current state...** salva o estado completo (patch, delay, arpejador e ajustes globais,
+  coisas que o preset não guarda) com o nome que você escolher.
+- **Load a saved state...** lista os estados salvos (toque para carregar, Delete com confirmação).
+- **Reset to default state** volta ao estado padrão; se não houver um, restaura os valores de fábrica.
+- **Save as default state** grava o estado atual como padrão: ele é carregado **sempre que o app abre**.
+- **Remove default state** apaga o padrão (o app volta a reabrir com a última sessão).
+
 ## Áudio / MIDI / Latência
 
-Engrenagem > "Audio / MIDI / Latency": escolha o tamanho do buffer (latência), a taxa de
+O botão Voltar do Android (ou Esc no desktop) fecha a tela Options.
+
+Na mesma tela Options: escolha o tamanho do buffer (latência), a taxa de
 amostragem e o driver de áudio, ligue/desligue cada controlador MIDI e veja um monitor da
 última mensagem MIDI recebida. As escolhas ficam salvas.
 

@@ -144,7 +144,7 @@ KR106Editor::KR106Editor(KR106AudioProcessor& p)
     };
 
     // ---- widths: row A (LFO, DCO, HPF, VCF) and row B (VCA, ENV, CHORUS, DELAY, ARP)
-    const int wA[4] = { 130, 332, 56, 262 };
+    const int wA[4] = { 130, 348, 56, 262 };   // DCO: Sub button ends at x0+340
     const int wB[5] = { 86, 188, 88, 252, 230 };
     auto gapFor = [&](const int* w, int n) {
         int sum = 0; for (int i = 0; i < n; i++) sum += w[i];
@@ -693,7 +693,7 @@ void KR106Editor::showSettingsMenu()
     items.push_back(KR106MenuItem::makeAction(40, "Component Variance Editor"));
     items.push_back(KR106MenuItem::makeAction(41, "Keyboard Shortcuts"));
     if (kr106touch::audioMidiHook())
-        items.push_back(KR106MenuItem::makeAction(43, "Audio / MIDI / Latency"));
+        items.push_back(KR106MenuItem::makeAction(43, "Options: State, Audio, MIDI"));
     // items.push_back(KR106MenuItem::item(42, "Click Debug Mode",          true, mClickDebugEnabled));
 
     mSettingsMenu = std::make_unique<KR106MenuSheet>(std::move(items), mMenuTypeface,
