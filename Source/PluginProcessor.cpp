@@ -43,7 +43,7 @@ static bool isLivePerformanceParam(int idx)
          idx == kArpQuantize || idx == kLfoQuantize ||
          (idx >= kSettingVoices && idx <= kSettingMidiSysEx) ||
          idx == kSettingOscMode ||
-         (idx >= kDelayTime && idx <= kArpShLoop);  // global FX / arp extras, survive preset changes
+         (idx >= kDelayTime && idx <= kDDelayMode);  // global FX / arp extras, survive preset changes
 }
 
 static bool sExcludeMask[kNumParams] = {};
@@ -471,6 +471,28 @@ KR106AudioProcessor::KR106AudioProcessor()
   };
   addSlider(kArpPattern, "Arp Pattern",    0.f, 0.f, 1.f, fmtArpPattern);
   addSlider(kArpShLoop,  "Arp S&H Cycle",  0.f, 0.f, 1.f, fmtArpShLoop);
+
+  // Digital delay
+  SFV fmtDDTime = [](float v, int) -> juce::String {
+    float ms = kr106::DigitalDelay::TimeMs(v);
+    return ms >= 1000.f ? juce::String(ms / 1000.f, 2) + " s" : juce::String(juce::roundToInt(ms)) + " ms";
+  };
+  SFV fmtDDTone = [](float v, int) -> juce::String {
+    float hz = kr106::DigitalDelay::ToneHz(v);
+    return hz >= 1000.f ? juce::String(hz / 1000.f, 1) + " kHz" : juce::String(juce::roundToInt(hz)) + " Hz";
+  };
+  SFV fmtDDLow = [](float v, int) -> juce::String {
+    return juce::String(juce::roundToInt(kr106::DigitalDelay::LowCutHz(v))) + " Hz";
+  };
+  SFV fmtDDMode = [](float v, int) -> juce::String {
+    return kr106::DigitalDelay::kModeNames[kr106::DigitalDelay::ModeFromValue(v)];
+  };
+  addSlider(kDDelayTime,     "Digital Delay Time",     0.75f, 0.f, 1.f, fmtDDTime);
+  addSlider(kDDelayFeedback, "Digital Delay Feedback", 0.35f, 0.f, 1.f, fmtPct, parsePct);
+  addSlider(kDDelayMix,      "Digital Delay Mix",      0.f,   0.f, 1.f, fmtPct, parsePct);
+  addSlider(kDDelayTone,     "Digital Delay Tone",     0.8f,  0.f, 1.f, fmtDDTone);
+  addSlider(kDDelayLowCut,   "Digital Delay Low Cut",  0.2f,  0.f, 1.f, fmtDDLow);
+  addSlider(kDDelayMode,     "Digital Delay Mode",     0.f,   0.f, 1.f, fmtDDMode);
 
   // Build factory presets from compiled-in data (raw 7-bit integer values)
   constexpr int kFactoryValues = sizeof(KR106FactoryPreset::values) / sizeof(int);

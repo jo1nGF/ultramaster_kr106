@@ -41,6 +41,7 @@
       <FILE id="8ba55e" name="KR106AnalogNoise.h" compile="0" resource="0" file="Source/DSP/KR106AnalogNoise.h"/>
       <FILE id="63d029" name="KR106Arpeggiator.h" compile="0" resource="0" file="Source/DSP/KR106Arpeggiator.h"/>
       <FILE id="6e479d" name="KR106Chorus.h" compile="0" resource="0" file="Source/DSP/KR106Chorus.h"/>
+      <FILE id="d28b16" name="KR106DigitalDelay.h" compile="0" resource="0" file="Source/DSP/KR106DigitalDelay.h"/>
       <FILE id="9c89dc" name="KR106LFO.h" compile="0" resource="0" file="Source/DSP/KR106LFO.h"/>
       <FILE id="2f2b17" name="KR106Noise.h" compile="0" resource="0" file="Source/DSP/KR106Noise.h"/>
       <FILE id="c44809" name="KR106Oscillators.h" compile="0" resource="0" file="Source/DSP/KR106Oscillators.h"/>

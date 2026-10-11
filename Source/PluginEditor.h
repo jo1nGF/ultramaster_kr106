@@ -46,7 +46,7 @@ private:
     // Touch layout: section tiles and text labels are painted by the editor
     // (the desktop UI gets them from the background bitmap).
     struct TouchSection { juce::String name; juce::Rectangle<int> r; bool blue; };
-    struct TouchLabel   { juce::String text; float cx; int y; };
+    struct TouchLabel   { juce::String text; float cx; int y; int group; };   // group: 0 always, 1 tape tab, 2 digital tab
     std::vector<TouchSection> mTouchSections;
     std::vector<TouchLabel> mTouchLabels;
     void paintTouchBackground(juce::Graphics&);
@@ -65,6 +65,13 @@ private:
     std::unique_ptr<KR106MenuSheet> mChoiceMenu;
     KR106TouchChoice* mArpPatternBtn = nullptr;
     KR106TouchChoice* mArpShBtn = nullptr;
+
+    // Delay tile with two tabs: tape (1) and digital (2)
+    int mDelayTab = 1;
+    std::vector<juce::Component*> mDelayTabCtrls[2];
+    KR106TouchTabs* mDelayTabs = nullptr;
+    KR106TouchChoice* mDDModeBtn = nullptr;
+    void setDelayTab(int tab);
     void showChoiceMenu(const juce::StringArray& names, int current,
                         juce::Rectangle<int> anchor, std::function<void(int)> onPick);
 

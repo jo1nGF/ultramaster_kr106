@@ -110,7 +110,7 @@ KR106Editor::KR106Editor(KR106AudioProcessor& p)
         ctrl->setTransform(juce::AffineTransform::scale(f).translated((float) b.getX(), (float) b.getY()));
         return ctrl;
     };
-    auto lbl = [&](const char* t, float cx, int y) { mTouchLabels.push_back({ t, cx, y }); };
+    auto lbl = [&](const char* t, float cx, int y, int group = 0) { mTouchLabels.push_back({ t, cx, y, group }); };
     auto tile = [&](const char* name, int x, int y, int w, bool blue) {
         mTouchSections.push_back({ name, { x, y, w, kTileH }, blue });
     };
@@ -134,12 +134,13 @@ KR106Editor::KR106Editor(KR106AudioProcessor& p)
         addML(idx, c, x, ty + kFadeY + 8, 17, 28); scaled(c, kBF);
         lbl(l, x + 16.f, ty + labelY);
     };
-    auto knob = [&](int idx, int cx, int cy, const char* l, float f) {
+    auto knob = [&](int idx, int cx, int cy, const char* l, float f, int group = 0) {
         auto* c = new KR106Knob(param(idx), smallKnob, tip, 32);
         c->setMidiLearn(&p, idx);
         mLearnableParams.push_back(idx); mLearnableControls.push_back({ idx, c });
         add(c, cx - (int) (14 * f), cy - (int) (13.5f * f), 28, 27); scaled(c, f);
-        lbl(l, (float) cx, cy + (int) (11.f * f) + 11);   // label sits below the value arc (radius 11)
+        lbl(l, (float) cx, cy + (int) (11.f * f) + 11, group);   // label sits below the value arc (radius 11)
+        if (group > 0) mDelayTabCtrls[group - 1].push_back(c);
         return c;
     };
 
@@ -245,15 +246,36 @@ KR106Editor::KR106Editor(KR106AudioProcessor& p)
         ledBtn(kChorusI,  1, x0 + 8,  ty, "I",  kLblY);
         ledBtn(kChorusII, 2, x0 + 46, ty, "II", kLblY);
     }
-    {   // TAPE DELAY (new): Wow = depth of the delay-time LFO (pitch wobble), Speed = its rate
-        int x0 = xB[3], ty = kRowB; tile("Tape delay", x0, ty, wB[3], true);
+    {   // DELAY tile with two tabs. Tape: Wow = depth of the delay-time LFO (pitch wobble),
+        // Speed = its rate. Digital: clean stereo echo with Stereo / Ping-pong / Dotted modes.
+        int x0 = xB[3], ty = kRowB; tile("", x0, ty, wB[3], true);
+        mDelayTabs = add(new KR106TouchTabs(juce::StringArray { "Tape delay", "Digital delay" },
+                                            [this](int i) { setDelayTab(i + 1); }),
+                         x0 + 6, ty + 1, wB[3] - 12, 18);
         const int cy = ty + 68;
-        knob(kDelayTime,     x0 + 26,  cy, "Time",  1.75f);
-        knob(kDelayFeedback, x0 + 66,  cy, "Fdbk",  1.75f);
-        knob(kDelayMix,      x0 + 106, cy, "Mix",   1.75f);
-        knob(kDelayTone,     x0 + 146, cy, "Tone",  1.75f);
-        knob(kDelayWow,      x0 + 186, cy, "Wow",   1.75f);
-        knob(kDelayWowRate,  x0 + 226, cy, "Speed", 1.75f);
+        knob(kDelayTime,     x0 + 26,  cy, "Time",  1.75f, 1);
+        knob(kDelayFeedback, x0 + 66,  cy, "Fdbk",  1.75f, 1);
+        knob(kDelayMix,      x0 + 106, cy, "Mix",   1.75f, 1);
+        knob(kDelayTone,     x0 + 146, cy, "Tone",  1.75f, 1);
+        knob(kDelayWow,      x0 + 186, cy, "Wow",   1.75f, 1);
+        knob(kDelayWowRate,  x0 + 226, cy, "Speed", 1.75f, 1);
+
+        knob(kDDelayTime,     x0 + 26,  cy, "Time",    1.75f, 2);
+        knob(kDDelayFeedback, x0 + 66,  cy, "Fdbk",    1.75f, 2);
+        knob(kDDelayMix,      x0 + 106, cy, "Mix",     1.75f, 2);
+        knob(kDDelayTone,     x0 + 146, cy, "Tone",    1.75f, 2);
+        knob(kDDelayLowCut,   x0 + 186, cy, "Low cut", 1.75f, 2);
+        mDDModeBtn = add(new KR106TouchChoice("Mode",
+            [this]() { return juce::String(kr106::DigitalDelay::kModeNames[kr106::DigitalDelay::ModeFromValue(
+                          mProcessor.getParam(kDDelayMode)->getValue())]); },
+            [this]() {
+                int m = kr106::DigitalDelay::ModeFromValue(mProcessor.getParam(kDDelayMode)->getValue());
+                mProcessor.getParam(kDDelayMode)->setValueNotifyingHost(
+                    kr106::DigitalDelay::ValueFromMode((m + 1) % kr106::DigitalDelay::kNumModes));
+                mDDModeBtn->refresh(); }),
+            x0 + 204, cy - 18, 44, 36);
+        mDelayTabCtrls[1].push_back(mDDModeBtn);
+        setDelayTab(1);
     }
     {   // ARPEGGIATOR: classic controls on top, pattern + S&H cycle selectors below
         int x0 = xB[4], ty = kRowB; tile("Arp", x0, ty, wB[4], true);
@@ -1130,14 +1152,25 @@ void KR106Editor::paintTouchBackground(juce::Graphics& g)
         g.fillPath(hdr);
         g.setColour(juce::Colours::white);
         g.setFont(juce::FontOptions(13.f));
-        g.drawText(t.name, t.r.getX() + 8, t.r.getY(), t.r.getWidth() - 12, 20,
-                   juce::Justification::centredLeft);
+        if (t.name.isNotEmpty())
+            g.drawText(t.name, t.r.getX() + 8, t.r.getY(), t.r.getWidth() - 12, 20,
+                       juce::Justification::centredLeft);
     }
     g.setColour(juce::Colours::white);
     g.setFont(juce::FontOptions(11.f));
     for (auto& l : mTouchLabels)
-        g.drawText(l.text, juce::Rectangle<float>(l.cx - 34.f, (float) l.y - 12.f, 68.f, 14.f),
+        if (l.group == 0 || l.group == mDelayTab)
+            g.drawText(l.text, juce::Rectangle<float>(l.cx - 34.f, (float) l.y - 12.f, 68.f, 14.f),
                    juce::Justification::centred);
+}
+
+void KR106Editor::setDelayTab(int tab)
+{
+    mDelayTab = tab;
+    for (int g = 0; g < 2; g++)
+        for (auto* c : mDelayTabCtrls[g]) c->setVisible(g + 1 == tab);
+    if (mDelayTabs) mDelayTabs->setSelected(tab - 1);
+    repaint();
 }
 
 void KR106Editor::showKeysSheet()
@@ -1177,6 +1210,7 @@ void KR106Editor::paint(juce::Graphics& g)
 void KR106Editor::timerCallback()
 {
 #if KR106_TOUCH
+    if (mDDModeBtn) mDDModeBtn->refresh();
     if (mArpPatternBtn)
     {
         mArpPatternBtn->refresh();

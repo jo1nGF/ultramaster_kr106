@@ -27,7 +27,8 @@ void KR106DSP<T>::SetParam(int paramIdx, double value)
     kLfoQuantize,
     kSettingOscMode,
     kDelayTime, kDelayFeedback, kDelayMix, kDelayTone, kDelayWow,
-    kDelayWowRate, kArpPattern, kArpShLoop
+    kDelayWowRate, kArpPattern, kArpShLoop,
+    kDDelayTime, kDDelayFeedback, kDDelayMix, kDDelayTone, kDDelayLowCut, kDDelayMode
   };
 
   switch (paramIdx)
@@ -322,6 +323,12 @@ void KR106DSP<T>::SetParam(int paramIdx, double value)
       mArp.mCounter = 0; mArp.mWalkPos = 0;
       break;
     case kArpShLoop:     mArp.SetShLoop(kr106::shLoopFromValue(static_cast<float>(value))); break;
+    case kDDelayTime:     mDigitalDelay.SetTime(static_cast<float>(value));     break;
+    case kDDelayFeedback: mDigitalDelay.SetFeedback(static_cast<float>(value)); break;
+    case kDDelayMix:      mDigitalDelay.SetMix(static_cast<float>(value));      break;
+    case kDDelayTone:     mDigitalDelay.SetTone(static_cast<float>(value));     break;
+    case kDDelayLowCut:   mDigitalDelay.SetLowCut(static_cast<float>(value));   break;
+    case kDDelayMode:     mDigitalDelay.SetMode(static_cast<float>(value));     break;
 
     case kChorusOff: break;
     case kChorusI:

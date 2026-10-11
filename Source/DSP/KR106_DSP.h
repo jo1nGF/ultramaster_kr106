@@ -17,6 +17,7 @@
 #include "KR106Arpeggiator.h"
 #include "KR106Chorus.h"
 #include "KR106TapeDelay.h"
+#include "KR106DigitalDelay.h"
 #include "KR106_HPF.h"
 #include "KR106AnalogNoise.h"
 #include "KR106Resampler.h"
@@ -697,8 +698,10 @@ public:
       float R = (nOutputs > 1) ? static_cast<float>(outputs[1][s]) : L;
       float oL, oR;
       mTapeDelay.Process(L, R, oL, oR);
-      outputs[0][s] = static_cast<T>(oL);
-      if (nOutputs > 1) outputs[1][s] = static_cast<T>(oR);
+      float dL, dR;                          // digital delay after the tape delay
+      mDigitalDelay.Process(oL, oR, dL, dR);
+      outputs[0][s] = static_cast<T>(dL);
+      if (nOutputs > 1) outputs[1][s] = static_cast<T>(dR);
     }
 
     // Master volume after chorus (scales signal + chorus noise together)
@@ -758,6 +761,7 @@ public:
     mChorus.Init(mSampleRate);
     mTapeDelay.Init(mSampleRate);
     mTapeDelay.Snap();
+    mDigitalDelay.Init(mSampleRate);
     mFloorNoise.Init(mSampleRate);
     mFloorNoise.mPinkEnabled = true;
     mFloorNoise.SetHighShelf(500, -16, mSampleRate);
@@ -856,6 +860,7 @@ public:
 
   kr106::Chorus mChorus;
   kr106::TapeDelay mTapeDelay;
+  kr106::DigitalDelay mDigitalDelay;
   kr106::Arpeggiator mArp;
 
   float mVcaLevel = 1.f;

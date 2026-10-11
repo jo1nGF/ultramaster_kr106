@@ -74,7 +74,9 @@ public:
     g.drawText(mCaption, getLocalBounds().withTrimmedTop(2).withHeight(11), juce::Justification::centred);
     g.setColour(juce::Colours::white.withAlpha(mEnabledLook ? 1.f : 0.45f));
     g.setFont(juce::FontOptions(11.f));
-    g.drawText(currentText(), getLocalBounds().withTrimmedTop(12), juce::Justification::centred);
+    // squeeze long values (e.g. "Ping-pong") instead of cutting them with "..."
+    g.drawFittedText(currentText(), getLocalBounds().withTrimmedTop(12).reduced(2, 0),
+                     juce::Justification::centred, 1, 0.6f);
   }
   void mouseDown(const juce::MouseEvent&) override { mDown = true; repaint(); }
   void mouseUp(const juce::MouseEvent& e) override
@@ -88,6 +90,48 @@ private:
   std::function<juce::String()> mValue;
   std::function<void()> mOnClick;
   bool mDown = false, mEnabledLook = true;
+};
+
+// ---------------------------------------------------------------------------
+// Segmented tabs drawn on a tile header (e.g. "Tape | Digital").
+class KR106TouchTabs : public juce::Component
+{
+public:
+  KR106TouchTabs(juce::StringArray names, std::function<void(int)> onChange)
+    : mNames(std::move(names)), mOnChange(std::move(onChange)) {}
+
+  void setSelected(int i) { mSel = i; repaint(); }
+  int getSelected() const { return mSel; }
+
+  void paint(juce::Graphics& g) override
+  {
+    const int n = mNames.size();
+    if (n == 0) return;
+    const float w = (float) getWidth() / (float) n;
+    for (int i = 0; i < n; i++)
+    {
+      juce::Rectangle<float> r(i * w + 1.f, 1.f, w - 2.f, (float) getHeight() - 2.f);
+      if (i == mSel)
+      {
+        g.setColour(juce::Colours::white.withAlpha(0.28f));
+        g.fillRoundedRectangle(r, 3.f);
+      }
+      g.setColour(juce::Colours::white.withAlpha(i == mSel ? 1.f : 0.6f));
+      g.setFont(juce::FontOptions(13.f, i == mSel ? juce::Font::bold : juce::Font::plain));
+      g.drawText(mNames[i], r.toNearestInt(), juce::Justification::centred);
+    }
+  }
+  void mouseUp(const juce::MouseEvent& e) override
+  {
+    if (!getLocalBounds().contains(e.getPosition()) || mNames.isEmpty()) return;
+    int i = juce::jlimit(0, mNames.size() - 1, e.x * mNames.size() / juce::jmax(1, getWidth()));
+    if (i != mSel) { mSel = i; repaint(); if (mOnChange) mOnChange(i); }
+  }
+
+private:
+  juce::StringArray mNames;
+  std::function<void(int)> mOnChange;
+  int mSel = 0;
 };
 
 // ---------------------------------------------------------------------------

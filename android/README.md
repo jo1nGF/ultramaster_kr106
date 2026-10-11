@@ -28,6 +28,16 @@ O APK é assinado com a chave de debug padrão, o que basta para instalar direto
 - **Engrenagem:** abre o menu original de ajustes (vozes, oversampling, sync etc.).
   No S10, comece com 6 vozes e VCF Oversample 2x e suba se a CPU permitir.
 
+## Delay digital
+
+O tile de delay tem duas abas: **Tape delay** e **Digital delay**. As duas funcionam ao mesmo
+tempo (digital depois do tape); a aba só escolhe qual você está editando. O digital é um eco
+limpo e preciso: Time (5 ms a 1,5 s, sem mudar a afinação nem estalar ao mexer), Fdbk, Mix,
+Tone (passa-baixa no feedback), Low cut (passa-alta no feedback) e Mode (toque para alternar):
+Stereo, Ping-pong (os ecos alternam esquerda e direita) e Dotted (direita a 3/4 do tempo da
+esquerda). O primeiro eco sai limpo e os seguintes ficam mais escuros e finos. Mix em 0 deixa
+o som idêntico. Como o tape delay, não faz parte dos presets (entra nos estados salvos).
+
 ## Zoom e arrastar
 
 Menu da engrenagem > 100% / 150% / 200% / 300%, ou com gestos: pinça com dois dedos em áreas

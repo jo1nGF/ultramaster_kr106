@@ -39,6 +39,8 @@ enum EParams
   kDelayTime, kDelayFeedback, kDelayMix, kDelayTone, kDelayWow,
   // Added later (also appended, same reason): wow speed, arpeggiator patterns
   kDelayWowRate, kArpPattern, kArpShLoop,
+  // Digital delay (clean stereo echo, after the tape delay)
+  kDDelayTime, kDDelayFeedback, kDDelayMix, kDDelayTone, kDDelayLowCut, kDDelayMode,
   kNumParams
 };
 
