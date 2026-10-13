@@ -494,6 +494,13 @@ KR106AudioProcessor::KR106AudioProcessor()
   addSlider(kDDelayLowCut,   "Digital Delay Low Cut",  0.2f,  0.f, 1.f, fmtDDLow);
   addSlider(kDDelayMode,     "Digital Delay Mode",     0.f,   0.f, 1.f, fmtDDMode);
 
+  // LFO waveform (patch parameter) and looping envelope
+  SFV fmtLfoWave = [](float v, int) -> juce::String {
+    return kr106::kLfoWaveNames[kr106::lfoWaveFromValue(v)];
+  };
+  addSlider(kLfoWave, "LFO Wave", 0.f, 0.f, 1.f, fmtLfoWave);
+  addBool(kEnvLoop, "Envelope Loop", false);
+
   // Build factory presets from compiled-in data (raw 7-bit integer values)
   constexpr int kFactoryValues = sizeof(KR106FactoryPreset::values) / sizeof(int);
   for (int j = 0; j < kNumFactoryPresets; j++)
@@ -1083,6 +1090,7 @@ void KR106AudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
   float vol = getParamValue(kMasterVol);
   mDSP.mMasterVol = vol * vol; // audio taper (squared)
   mDSP.ProcessBlock(nullptr, outputs, nOutputs, nFrames);
+  publishLatchedNotes();
 
   // --- Fade-in on stream start to prevent click from audio device open ---
   if (mFadeInRemaining > 0)
@@ -1348,6 +1356,75 @@ void KR106AudioProcessor::parameterChanged(int paramIdx, float newValue)
   }
 }
 
+// ---- latched (Hold) notes: published by the audio thread, saved with the state ----
+void KR106AudioProcessor::publishLatchedNotes()
+{
+  uint8_t tmp[128];
+  int n = 0;
+  if (mDSP.mHold)
+  {
+    if (mDSP.mArp.mEnabled)
+    {
+      for (int note : mDSP.mArp.mPlayOrder)          // keeps the "as played" order
+        if (n < 128) tmp[n++] = static_cast<uint8_t>(note);
+    }
+    else
+    {
+      for (int i = 0; i < 128; i++)
+        if (mDSP.mHeldNotes.test(static_cast<size_t>(i))) tmp[n++] = static_cast<uint8_t>(i);
+    }
+  }
+  bool same = (n == mLatchCount.load(std::memory_order_relaxed));
+  for (int i = 0; same && i < n; i++)
+    if (mLatchNotes[i].load(std::memory_order_relaxed) != tmp[i]) same = false;
+  if (same) return;
+
+  mLatchVer.fetch_add(1, std::memory_order_acq_rel);           // odd = writing
+  for (int i = 0; i < n; i++) mLatchNotes[i].store(tmp[i], std::memory_order_relaxed);
+  mLatchCount.store(n, std::memory_order_relaxed);
+  mLatchVer.fetch_add(1, std::memory_order_release);           // even = stable
+}
+
+std::vector<int> KR106AudioProcessor::readLatchedNotes() const
+{
+  std::vector<int> out;
+  for (int attempt = 0; attempt < 16; attempt++)
+  {
+    uint32_t v1 = mLatchVer.load(std::memory_order_acquire);
+    if (v1 & 1u) continue;
+    int n = std::min(128, mLatchCount.load(std::memory_order_relaxed));
+    out.clear();
+    for (int i = 0; i < n; i++) out.push_back(mLatchNotes[i].load(std::memory_order_relaxed));
+    std::atomic_thread_fence(std::memory_order_acquire);
+    if (mLatchVer.load(std::memory_order_relaxed) == v1) return out;
+  }
+  return out;
+}
+
+// Put a saved set of latched notes back. Hold / Arp are already restored (they are
+// parameters), so a note-on + note-off per key leaves it latched, exactly as if the
+// player had pressed it with Hold on. Notes that are latched now but not in the
+// saved set are released first.
+void KR106AudioProcessor::restoreLatchedNotes(const std::vector<int>& notes)
+{
+  const auto current = readLatchedNotes();
+  std::bitset<128> want, have;
+  for (int n : notes)   if (n >= 0 && n < 128) want.set(static_cast<size_t>(n));
+  for (int n : current) if (n >= 0 && n < 128) have.set(static_cast<size_t>(n));
+
+  for (int i = 0; i < 128; i++)
+    if (have.test(static_cast<size_t>(i)) && !want.test(static_cast<size_t>(i)))
+      forceReleaseNote(i);
+
+  if (getParamValue(kHold) < 0.5f) return;                    // no Hold: nothing can stay latched
+  for (int n : notes)
+  {
+    if (n < 0 || n >= 128 || have.test(static_cast<size_t>(n))) continue;   // already latched
+    sendMidiFromUI(0x90, static_cast<uint8_t>(n), 100);
+    sendMidiFromUI(0x80, static_cast<uint8_t>(n), 0);
+  }
+}
+
 void KR106AudioProcessor::forceReleaseNote(int noteNum)
 {
   int head = mForceReleaseHead.load(std::memory_order_relaxed);
@@ -1386,11 +1463,18 @@ void KR106AudioProcessor::getStateInformation(juce::MemoryBlock& destData)
   stream.writeInt(0x4B523238); // 'KR28' magic
   stream.writeInt(mCurrentPreset);
   stream.writeInt(mScopePage);
+
+  // Notes latched by Hold (arpeggiator keys that stay on without being pressed)
+  const auto latched = readLatchedNotes();
+  stream.writeInt(0x4B523330); // 'KR30' magic
+  stream.writeInt(static_cast<int>(latched.size()));
+  for (int n : latched) stream.writeByte(static_cast<char>(n));
 }
 
 void KR106AudioProcessor::setStateInformation(const void* data, int sizeInBytes)
 {
   mInitialDefault = false;
+  std::vector<int> latched;            // Hold-latched notes saved with the state
   juce::MemoryInputStream stream(data, static_cast<size_t>(sizeInBytes), false);
   int numParams = stream.readInt();
   if (numParams > kNumParams) numParams = kNumParams;
@@ -1435,6 +1519,12 @@ void KR106AudioProcessor::setStateInformation(const void* data, int sizeInBytes)
         // v2.5.8+: preset index and scope page
         if (!stream.isExhausted()) mCurrentPreset = stream.readInt();
         if (!stream.isExhausted()) mScopePage = stream.readInt();
+        if (!stream.isExhausted() && stream.readInt() == 0x4B523330)
+        {
+          int n = juce::jlimit(0, 128, stream.readInt());
+          for (int i = 0; i < n && !stream.isExhausted(); i++)
+            latched.push_back(static_cast<uint8_t>(stream.readByte()));
+        }
       }
       else
       {
@@ -1468,6 +1558,9 @@ void KR106AudioProcessor::setStateInformation(const void* data, int sizeInBytes)
     }
   }
 
+
+  // Hold-latched notes (arpeggiator keys that stay on) come back last, after Hold/Arp
+  restoreLatchedNotes(latched);
 }
 
 // --- Program / Preset management ---

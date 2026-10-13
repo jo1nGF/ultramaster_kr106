@@ -28,6 +28,27 @@ O APK é assinado com a chave de debug padrão, o que basta para instalar direto
 - **Engrenagem:** abre o menu original de ajustes (vozes, oversampling, sync etc.).
   No S10, comece com 6 vozes e VCF Oversample 2x e suba se a CPU permitir.
 
+## Notas travadas (Hold) no estado
+
+Os estados salvos (e o estado padrão) guardam também as notas que o Hold está segurando, com ou
+sem o arpejador ligado. Ao carregar, elas voltam travadas e o arpejo continua; as notas que
+estavam travadas antes de carregar são soltas. No teclado de teste, com Hold ligado, tocar de
+novo numa nota que já está travada (acesa) a solta, como no teclado do PC.
+
+## LFO: formas de onda
+
+O seletor **Wave** (abaixo da chave Mode do LFO) oferece: Triangle (a original), Sine, Square,
+Saw up, Saw down, **S&H random** (um valor aleatório novo a cada ciclo, mantido até o próximo) e
+Smooth random (os mesmos valores sorteados, com transição suave). Vale para todos os destinos do
+LFO (afinação, PWM, filtro) e nos dois modos, 60 e 106. A onda é parte do patch (presets).
+
+## Envelope em loop
+
+O botão **Loop** no cabeçalho do Envelope: com uma tecla pressionada, quando o decay chega ao
+sustain o ataque recomeça, repetindo o ciclo A-D (o nível de S define o piso do ciclo; com S
+alto o loop quase não aparece, e acima de ~95% fica desligado). Ao soltar a tecla vale o
+Release normal. Também é parte do patch (presets) e aceita MIDI learn (toque longo).
+
 ## Delay digital
 
 O tile de delay tem duas abas: **Tape delay** e **Digital delay**. As duas funcionam ao mesmo

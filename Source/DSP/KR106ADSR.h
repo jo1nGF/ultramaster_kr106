@@ -180,6 +180,7 @@ struct ADSR
   float mReleaseCoeff = 0.f;
 
   float mSustain = 1.f;
+  bool  mLoop = false;   // while the key is held, restart the attack when decay reaches sustain
   float mSampleRate = 44100.f;
   float mTimeScale = 1.f;      // per-voice component tolerance
 
@@ -340,6 +341,10 @@ struct ADSR
         case kDecay:
           mEnv += (mSustain - mEnv) * mDecayCoeff;
           mGateEnv += kGateSlope;
+          // Loop: the decay approaches sustain asymptotically, so restart the
+          // attack from the current level once it is within 2% of the swing.
+          if (mLoop && mSustain < 0.95f && (mEnv - mSustain) < 0.02f * (1.f - mSustain) + 0.0005f)
+            mState = kAttack;
           break;
         case kRelease:
           mGateEnv -= kGateSlope;
@@ -432,6 +437,10 @@ struct ADSR
         }
         else
           mEnvInt = mSusInt;
+        // Loop: restart the attack from here once the decay has (almost) reached sustain
+        if (mLoop && mSusInt < static_cast<uint16_t>(0.95f * kEnvMax)
+            && mEnvInt <= mSusInt + (kEnvMax - mSusInt) / 50 + 2)
+          mState = kAttack;
         break;
       case kRelease:
         // ROM $0540–$0560: exponential release toward zero.

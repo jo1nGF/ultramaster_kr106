@@ -71,6 +71,8 @@ private:
     std::vector<juce::Component*> mDelayTabCtrls[2];
     KR106TouchTabs* mDelayTabs = nullptr;
     KR106TouchChoice* mDDModeBtn = nullptr;
+    KR106TouchChoice* mLfoWaveBtn = nullptr;
+    KR106TouchToggle* mEnvLoopBtn = nullptr;
     void setDelayTab(int tab);
     void showChoiceMenu(const juce::StringArray& names, int current,
                         juce::Rectangle<int> anchor, std::function<void(int)> onPick);

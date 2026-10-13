@@ -521,6 +521,7 @@ public:
           mLFO.Tick106();
         }
         float tri = mLFO.mIntTri;
+        if (mLFO.mWave != kr106::kLfoTriangle) tri = mLFO.Shape(mLFO.IntPhase(), tri);
         float amp = mLFO.mAmpInt;
         mLFOBuffer[s] = static_cast<T>(tri * amp);
         mLFORawBuffer[s] = static_cast<T>(tri);

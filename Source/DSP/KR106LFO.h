@@ -70,8 +70,63 @@ static inline float sliderFromLfoDivision(int d)
   return static_cast<float>(d) / static_cast<float>(kNumLfoDivisions - 1);
 }
 
+// Extra LFO waveforms. 0 = the original (rounded) triangle, untouched.
+enum LfoWave
+{
+  kLfoTriangle = 0,
+  kLfoSine,
+  kLfoSquare,
+  kLfoSawUp,      // ramp -1 -> +1, then jumps back
+  kLfoSawDown,    // ramp +1 -> -1, then jumps back
+  kLfoSampleHold, // random value sampled once per cycle and held (stepped)
+  kLfoSmoothRandom, // same random values, glided into each other
+  kNumLfoWaves
+};
+static constexpr const char* kLfoWaveNames[kNumLfoWaves] = {
+  "Triangle", "Sine", "Square", "Saw up", "Saw down", "S&H random", "Smooth random"
+};
+static inline int lfoWaveFromValue(float v)
+{ return std::max(0, std::min(kNumLfoWaves - 1, static_cast<int>(std::round(v * (kNumLfoWaves - 1))))); }
+static inline float valueFromLfoWave(int w) { return static_cast<float>(w) / (kNumLfoWaves - 1); }
+
 struct LFO
 {
+  // --- waveform selection (extension) ---
+  // Phase convention for the new shapes: p in [0,1), p = 0 is the rising zero
+  // crossing of the original triangle, so every shape lines up with it.
+  int      mWave    = kLfoTriangle;
+  uint32_t mRng     = 0x9E3779B9u;
+  float    mShCur   = 0.f, mShNext = 0.f;   // sample & hold values (-1..+1)
+  float    mPrevPhase = 0.f;
+
+  float Rnd()                                // -1 .. +1
+  {
+    mRng = mRng * 1664525u + 1013904223u;
+    return static_cast<float>(mRng >> 8) * (2.f / 16777216.f) - 1.f;
+  }
+  void SetWave(int w)
+  {
+    mWave = std::max(0, std::min(kNumLfoWaves - 1, w));
+    mShCur = Rnd(); mShNext = Rnd(); mPrevPhase = 0.f;
+  }
+  // Shape for the non-triangle waves. Call once per sample (S&H needs the
+  // cycle wrap), with the unified phase p. 'tri' is the original triangle.
+  float Shape(float p, float tri)
+  {
+    if (p < mPrevPhase - 0.5f) { mShCur = mShNext; mShNext = Rnd(); }   // new cycle
+    mPrevPhase = p;
+    switch (mWave)
+    {
+      case kLfoSine:         return std::sin(6.2831853f * p);
+      case kLfoSquare:       return p < 0.5f ? 1.f : -1.f;
+      case kLfoSawUp:        return 2.f * p - 1.f;
+      case kLfoSawDown:      return 1.f - 2.f * p;
+      case kLfoSampleHold:   return mShCur;
+      case kLfoSmoothRandom: { float s = p * p * (3.f - 2.f * p); return mShCur + (mShNext - mShCur) * s; }
+      default:               return tri;
+    }
+  }
+
   float mPos        = 0.f; // phase [0, 1)
   float mFreq       = 0.f; // cycles per sample
   float mAmp        = 0.f; // current amplitude envelope [0, 1]
@@ -406,6 +461,15 @@ struct LFO
     mWasGated = gated;
   }
 
+  // Unified phase (0 = rising zero crossing) of the J106 integer LFO, rebuilt
+  // from its accumulator, direction and polarity. One audible cycle = 4 sweeps.
+  float IntPhase() const
+  {
+    const float mag = static_cast<float>(mIntAccum) / 8191.f;      // 0..1
+    if (!mIntPolarity) return mIntRising ? 0.25f * mag : 0.5f - 0.25f * mag;
+    return mIntRising ? 0.5f + 0.25f * mag : 1.f - 0.25f * mag;
+  }
+
   // J106 integer LFO tick. Call once per main-loop tick (~234 Hz).
   // Advances the integer accumulator and onset envelope, matching the
   // D7811G firmware at $074E.
@@ -520,6 +584,11 @@ struct LFO
     // Soft-clip peaks using cubic saturation (matches capacitor rounding)
     tri = tri * (1.5f - 0.5f * tri * tri);
 
+    if (mWave != kLfoTriangle)
+    {
+      float p = mPos - 0.25f; if (p < 0.f) p += 1.f;     // tri = 0 rising at mPos = 0.25
+      tri = Shape(p, tri);
+    }
     mLastTri = tri; // raw waveform before envelope (for J106 integer VCF path)
     return tri * mAmp;
   }

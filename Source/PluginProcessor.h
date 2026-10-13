@@ -41,6 +41,8 @@ enum EParams
   kDelayWowRate, kArpPattern, kArpShLoop,
   // Digital delay (clean stereo echo, after the tape delay)
   kDDelayTime, kDDelayFeedback, kDDelayMix, kDDelayTone, kDDelayLowCut, kDDelayMode,
+  // Patch extras: LFO waveform and looping envelope (saved with presets)
+  kLfoWave, kEnvLoop,
   kNumParams
 };
 
@@ -75,6 +77,12 @@ public:
 
   // Thread-safe queues for UI↔audio communication
   void forceReleaseNote(int noteNum);
+
+  // Notes latched by Hold (with or without the arpeggiator). The audio thread
+  // publishes them after every block so getStateInformation() can save them;
+  // setStateInformation() puts them back. (seqlock: lock-free for the audio thread)
+  std::vector<int> readLatchedNotes() const;
+  void restoreLatchedNotes(const std::vector<int>& notes);
   void sendMidiFromUI(uint8_t status, uint8_t data1, uint8_t data2);
 
   // Fast param access for UI controls
@@ -130,6 +138,11 @@ public:
 
   // Keyboard held-note display (audio thread writes, UI timer reads)
   std::bitset<128> mKeyboardHeld;
+
+  void publishLatchedNotes();                       // audio thread
+  std::atomic<uint32_t> mLatchVer{0};
+  std::atomic<int> mLatchCount{0};
+  std::atomic<uint8_t> mLatchNotes[128];
   std::atomic<bool> mLfoTriggered{false}; // CC1 mod state (audio→UI)
 
   // MIDI learn: param→CC map (multiple params can share a CC)

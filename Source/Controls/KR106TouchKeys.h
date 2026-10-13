@@ -93,6 +93,58 @@ private:
 };
 
 // ---------------------------------------------------------------------------
+// Small on/off toggle with an LED, sized to sit in a tile header (e.g. "Loop").
+class KR106TouchToggle : public juce::Component
+{
+public:
+  KR106TouchToggle(const juce::String& text, juce::RangedAudioParameter* param)
+    : mText(text), mParam(param) {}
+
+  bool isOn() const { return mParam != nullptr && mParam->getValue() > 0.5f; }
+  void refresh() { repaint(); }
+
+  void paint(juce::Graphics& g) override
+  {
+    const bool on = isOn();
+    auto r = getLocalBounds().toFloat().reduced(0.75f);
+    g.setColour(mDown ? juce::Colour(0xff4a4a4a) : juce::Colour(0xff1d1d1d));
+    g.fillRoundedRectangle(r, 3.5f);
+    g.setColour(on ? juce::Colour(0xffff5a4a) : juce::Colour(0xff7a7a7a));
+    g.drawRoundedRectangle(r, 3.5f, 1.f);
+    // LED
+    const float cy = r.getCentreY();
+    const float lx = r.getX() + 8.f;
+    if (on)
+    {
+      g.setColour(juce::Colour(0x55ff3020));
+      g.fillEllipse(lx - 5.f, cy - 5.f, 10.f, 10.f);
+    }
+    g.setColour(on ? juce::Colour(0xffff3b2a) : juce::Colour(0xff4a1414));
+    g.fillEllipse(lx - 3.f, cy - 3.f, 6.f, 6.f);
+    g.setColour(juce::Colours::white.withAlpha(on ? 1.f : 0.75f));
+    g.setFont(juce::FontOptions(11.f, on ? juce::Font::bold : juce::Font::plain));
+    g.drawText(mText, getLocalBounds().withTrimmedLeft(15), juce::Justification::centred);
+  }
+  void mouseDown(const juce::MouseEvent&) override { mDown = true; repaint(); }
+  void mouseUp(const juce::MouseEvent& e) override
+  {
+    mDown = false;
+    if (mParam != nullptr && getLocalBounds().contains(e.getPosition()))
+    {
+      mParam->beginChangeGesture();
+      mParam->setValueNotifyingHost(isOn() ? 0.f : 1.f);
+      mParam->endChangeGesture();
+    }
+    repaint();
+  }
+
+private:
+  juce::String mText;
+  juce::RangedAudioParameter* mParam;
+  bool mDown = false;
+};
+
+// ---------------------------------------------------------------------------
 // Segmented tabs drawn on a tile header (e.g. "Tape | Digital").
 class KR106TouchTabs : public juce::Component
 {
@@ -201,7 +253,7 @@ public:
   {
     auto it = mFingers.find(e.source.getIndex());
     if (it == mFingers.end()) return;
-    release(it->second);
+    if (it->second != kIgnoredFinger) release(it->second);
     mFingers.erase(it);
     repaint();
   }
@@ -215,8 +267,23 @@ private:
     int idx = e.source.getIndex();
     int note = hitTest(e.position);
     auto it = mFingers.find(idx);
+    if (it != mFingers.end() && it->second == kIgnoredFinger) return;     // finger that just released a latched key
     if (it != mFingers.end() && it->second == note) return;
+    const bool firstTouch = (it == mFingers.end());
     if (it != mFingers.end()) { release(it->second); mFingers.erase(it); }
+
+    // Hold on + a fresh tap on a key that is already latched (lit): release it
+    // instead of re-triggering it. Same behaviour as clicking a held key on the
+    // desktop keyboard. Dragging onto a latched key still just plays it.
+    if (firstTouch && note >= 0 && mProc != nullptr && mCount[note] == 0
+        && mProc->getParam(kHold)->getValue() > 0.5f
+        && mProc->mKeyboardHeld.test(static_cast<size_t>(note)))
+    {
+      mProc->forceReleaseNote(note);
+      mFingers[idx] = kIgnoredFinger;
+      repaint();
+      return;
+    }
     if (note >= 0)
     {
       float y = juce::jlimit(0.f, 1.f, e.position.y / (float) getHeight());
@@ -257,6 +324,7 @@ private:
     return whiteNote(i);
   }
 
+  static constexpr int kIgnoredFinger = -2;   // marks a finger used only to release a latched key
   KR106AudioProcessor* mProc;
   int mStart = 48;                       // C3
   int mCount[128] = {};                  // fingers holding each note

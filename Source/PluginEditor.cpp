@@ -145,7 +145,7 @@ KR106Editor::KR106Editor(KR106AudioProcessor& p)
     };
 
     // ---- widths: row A (LFO, DCO, HPF, VCF) and row B (VCA, ENV, CHORUS, DELAY, ARP)
-    const int wA[4] = { 130, 348, 56, 262 };   // DCO: Sub button ends at x0+340
+    const int wA[4] = { 150, 348, 56, 262 };   // DCO: Sub button ends at x0+340
     const int wB[5] = { 86, 188, 88, 252, 230 };
     auto gapFor = [&](const int* w, int n) {
         int sum = 0; for (int i = 0; i < n; i++) sum += w[i];
@@ -195,6 +195,19 @@ KR106Editor::KR106Editor(KR106AudioProcessor& p)
         scaled(mLfoRateSlider, kSF); lbl("Rate", x0 + 28.f, ty + kLblY);
         fader(kLfoDelay, x0 + 52, ty, "Delay");
         sw3(kLfoMode, 2, x0 + 100, ty, "Mode");
+        // LFO waveform selector (tap = list)
+        mLfoWaveBtn = add(new KR106TouchChoice("Wave",
+            [this]() { return juce::String(kr106::kLfoWaveNames[kr106::lfoWaveFromValue(
+                          mProcessor.getParam(kLfoWave)->getValue())]); },
+            [this, x0, ty]() {
+                juce::StringArray names;
+                for (int i = 0; i < kr106::kNumLfoWaves; i++) names.add(kr106::kLfoWaveNames[i]);
+                showChoiceMenu(names, kr106::lfoWaveFromValue(mProcessor.getParam(kLfoWave)->getValue()),
+                               { x0 + 88, ty + 104, 56, 28 },
+                               [this](int idx) {
+                                   mProcessor.getParam(kLfoWave)->setValueNotifyingHost(kr106::valueFromLfoWave(idx));
+                                   mLfoWaveBtn->refresh(); });
+            }), x0 + 90, ty + 106, 54, 28);
     }
     {   // DCO
         int x0 = xA[1], ty = kRowA; tile("DCO", x0, ty, wA[1], false);
@@ -240,6 +253,11 @@ KR106Editor::KR106Editor(KR106AudioProcessor& p)
         fader(kEnvD, x0 + 52, ty, "D");
         fader(kEnvS, x0 + 96, ty, "S");
         fader(kEnvR, x0 + 140, ty, "R");
+        // Loop: while a key is held the envelope restarts its attack when the decay reaches sustain
+        mEnvLoopBtn = add(new KR106TouchToggle("Loop", mProcessor.getParam(kEnvLoop)),
+                          x0 + wB[1] - 54, ty + 2, 48, 16);
+        mLearnableParams.push_back(kEnvLoop);
+        mLearnableControls.push_back({ kEnvLoop, mEnvLoopBtn });
     }
     {   // CHORUS
         int x0 = xB[2], ty = kRowB; tile("Chorus", x0, ty, wB[2], true);
@@ -1211,6 +1229,8 @@ void KR106Editor::timerCallback()
 {
 #if KR106_TOUCH
     if (mDDModeBtn) mDDModeBtn->refresh();
+    if (mLfoWaveBtn) mLfoWaveBtn->refresh();
+    if (mEnvLoopBtn) mEnvLoopBtn->refresh();
     if (mArpPatternBtn)
     {
         mArpPatternBtn->refresh();

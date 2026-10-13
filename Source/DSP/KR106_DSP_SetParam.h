@@ -28,7 +28,8 @@ void KR106DSP<T>::SetParam(int paramIdx, double value)
     kSettingOscMode,
     kDelayTime, kDelayFeedback, kDelayMix, kDelayTone, kDelayWow,
     kDelayWowRate, kArpPattern, kArpShLoop,
-    kDDelayTime, kDDelayFeedback, kDDelayMix, kDDelayTone, kDDelayLowCut, kDDelayMode
+    kDDelayTime, kDDelayFeedback, kDDelayMix, kDDelayTone, kDDelayLowCut, kDDelayMode,
+    kLfoWave, kEnvLoop
   };
 
   switch (paramIdx)
@@ -329,6 +330,13 @@ void KR106DSP<T>::SetParam(int paramIdx, double value)
     case kDDelayTone:     mDigitalDelay.SetTone(static_cast<float>(value));     break;
     case kDDelayLowCut:   mDigitalDelay.SetLowCut(static_cast<float>(value));   break;
     case kDDelayMode:     mDigitalDelay.SetMode(static_cast<float>(value));     break;
+    case kLfoWave:        mLFO.SetWave(kr106::lfoWaveFromValue(static_cast<float>(value))); break;
+    case kEnvLoop:
+    {
+      const bool on = value > 0.5;
+      ForEachVoice([on](kr106::Voice<T>& v) { v.mADSR.mLoop = on; });
+      break;
+    }
 
     case kChorusOff: break;
     case kChorusI:
