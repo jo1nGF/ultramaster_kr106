@@ -400,9 +400,16 @@ public:
     mEverPlayed[voiceIdx] = true;
   }
 
+  // Counts every note event that reaches the synth (keys, MIDI, arpeggiator steps).
+  // The modulation envelope and LFO retrigger read these counters.
+  uint32_t mModNoteOns = 0, mModNoteOffs = 0;
+  int mModVel = 127;
+
   void SendToSynth(int note, bool noteOn, int velocity, int offset = 0)
   {
     (void)offset;
+    if (noteOn) { mModNoteOns++; mModVel = velocity; }
+    else        mModNoteOffs++;
     if (mPortaMode == 0)
     {
       if (noteOn)

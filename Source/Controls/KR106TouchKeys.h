@@ -264,6 +264,42 @@ private:
 };
 
 // ---------------------------------------------------------------------------
+// LED that shows what a modulation source is sending right now (bipolar LFOs: red when
+// positive, blue when negative; unipolar envelope: amber). Brightness = size of the signal.
+class KR106ModLed : public juce::Component, private juce::Timer
+{
+public:
+  KR106ModLed(KR106AudioProcessor* p, int source, bool bipolar)
+    : mProc(p), mSrc(source), mBipolar(bipolar) { startTimerHz(30); }
+
+  void paint(juce::Graphics& g) override
+  {
+    const float v = mProc ? mProc->getModSourceValue(mSrc) : 0.f;
+    const float a = juce::jlimit(0.f, 1.f, mBipolar ? std::abs(v) : v);
+    const juce::Colour on = !mBipolar ? juce::Colour(0xffffa030)
+                          : (v < 0.f ? juce::Colour(0xff3a8cff) : juce::Colour(0xffff3b2a));
+    auto c = getLocalBounds().toFloat().reduced(2.f);
+    g.setColour(juce::Colour(0xff120808));
+    g.fillEllipse(c);
+    if (a > 0.01f)
+    {
+      g.setColour(on.withAlpha(0.35f * a));
+      g.fillEllipse(c.expanded(1.5f * a));
+    }
+    g.setColour(on.withAlpha(0.15f + 0.85f * a));
+    g.fillEllipse(c.reduced(1.5f));
+    g.setColour(juce::Colours::black.withAlpha(0.6f));
+    g.drawEllipse(c, 0.8f);
+  }
+
+private:
+  void timerCallback() override { if (isShowing()) repaint(); }
+  KR106AudioProcessor* mProc;
+  int mSrc;
+  bool mBipolar;
+};
+
+// ---------------------------------------------------------------------------
 // Horizontal bar meter (gain reduction / level).  value() returns 0..1.
 class KR106TouchMeter : public juce::Component, private juce::Timer
 {

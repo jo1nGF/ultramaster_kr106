@@ -164,6 +164,9 @@ public:
   void applyModulation(int nFrames, const juce::MidiBuffer& midi);
   kr106::ModLFO mModLfo[2];
   kr106::ModEnv mModEnv;
+  uint32_t mSeenOns = 0, mSeenOffs = 0;
+  std::atomic<float> mModSrcLast[4] {{0.f}, {0.f}, {0.f}, {0.f}};   // LFO 1, LFO 2, envelope: last values for the LEDs
+  float getModSourceValue(int s) const { return (s >= 0 && s < 4) ? mModSrcLast[s].load(std::memory_order_relaxed) : 0.f; }
   float mModSent[kNumParams] = {};
   bool  mModActive[kNumParams] = {};
 

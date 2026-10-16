@@ -435,6 +435,7 @@ KR106Editor::KR106Editor(KR106AudioProcessor& p)
       const int x0 = (l == 0) ? 8 : 276, ty = kRowA;
       const int b = (l == 0) ? kLfo1Wave : kLfo2Wave;
       tile(l == 0 ? "LFO 1" : "LFO 2", x0, ty, 262, false);
+      add(new KR106ModLed(&mProcessor, l + 1, true), x0 + 236, ty + 3, 15, 15);
       mModChoices.push_back(add(new KR106TouchChoice("Wave",
           [this, b]() { return juce::String(kr106::kModWaveNames[kr106::modWaveFromValue(mProcessor.getParam(b)->getValue())]); },
           [this, b, x0, ty]() {
@@ -458,6 +459,7 @@ KR106Editor::KR106Editor(KR106AudioProcessor& p)
     {   // ENVELOPE (XADSR controls): Attack, Decay, S-Start, S-Time, Release, Amp, Velocity
       const int x0 = 544, ty = kRowA, cy = ty + 72;
       tile("Envelope", x0, ty, 322, false);
+      add(new KR106ModLed(&mProcessor, 3, false), x0 + 300, ty + 3, 15, 15);
       knob(kModEnvAtt,    x0 + 24,  cy, "Attack",   1.3f);
       knob(kModEnvDec,    x0 + 70,  cy, "Decay",    1.3f);
       knob(kModEnvSStart, x0 + 116, cy, "S-Start",  1.3f);

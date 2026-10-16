@@ -1455,22 +1455,23 @@ static const int kModTargetParam[kr106::kNumModTargets] = {
   kDelayTime, kDelayFeedback, kDelayMix, kDelayTone, kDelayWow,
   kDDelayTime, kDDelayFeedback, kDDelayMix,
   kCldPos, kCldSize, kCldPitch, kCldDens, kCldMix, kCldRev,
-  kArpRate, kArpSwing, kArpGate, kLimCeil
+  kArpRate, kArpSwing, kArpGate, kArpRatchet, kLimCeil
 };
 
-void KR106AudioProcessor::applyModulation(int nFrames, const juce::MidiBuffer& midi)
+void KR106AudioProcessor::applyModulation(int nFrames, const juce::MidiBuffer& /*midi*/)
 {
-  for (const auto meta : midi)
+  // Gate: every note event that reaches the synth - keys, MIDI, arpeggiator steps - is counted in the DSP
+  if (mDSP.mModNoteOns != mSeenOns)
   {
-    const auto msg = meta.getMessage();
-    if (msg.isNoteOn())
-    {
-      mModEnv.NoteOn(msg.getFloatVelocity());
-      if (getParamValue(kLfo1Retrig) > 0.5f) mModLfo[0].Retrigger(getParamValue(kLfo1Phase));
-      if (getParamValue(kLfo2Retrig) > 0.5f) mModLfo[1].Retrigger(getParamValue(kLfo2Phase));
-    }
-    else if (msg.isNoteOff() && mDSP.mHeldNotes.none())
-      mModEnv.NoteOff();
+    mSeenOns = mDSP.mModNoteOns;
+    mModEnv.NoteOn(mDSP.mModVel / 127.f);
+    if (getParamValue(kLfo1Retrig) > 0.5f) mModLfo[0].Retrigger(getParamValue(kLfo1Phase));
+    if (getParamValue(kLfo2Retrig) > 0.5f) mModLfo[1].Retrigger(getParamValue(kLfo2Phase));
+  }
+  if (mDSP.mModNoteOffs != mSeenOffs)
+  {
+    mSeenOffs = mDSP.mModNoteOffs;
+    if (mDSP.mHeldNotes.none() && mDSP.mKeysDown.none()) mModEnv.NoteOff();   // no key down and nothing latched: release
   }
 
   float src[4] = { 0.f, 0.f, 0.f, 0.f };
@@ -1480,6 +1481,8 @@ void KR106AudioProcessor::applyModulation(int nFrames, const juce::MidiBuffer& m
                               getParamValue(kLfo2Delay), getParamValue(kLfo2SH), getParamValue(kLfo2Smooth), getParamValue(kLfo2Phase));
   src[3] = mModEnv.Process(nFrames, getParamValue(kModEnvAtt), getParamValue(kModEnvDec), getParamValue(kModEnvSStart),
                            getParamValue(kModEnvSTime), getParamValue(kModEnvRel), getParamValue(kModEnvAmp), getParamValue(kModEnvVel));
+
+  for (int s = 1; s < 4; s++) mModSrcLast[s].store(src[s], std::memory_order_relaxed);
 
   float add[kNumParams] = {};
   bool hit[kNumParams] = {};
