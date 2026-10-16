@@ -187,6 +187,83 @@ private:
 };
 
 // ---------------------------------------------------------------------------
+// Horizontal fine slider (bipolar amounts): drag left/right. The full range takes ~300 px,
+// so 1 px is about 0.7 % (fine enough for a 86 px wide control). Centre is 0 %, and a
+// double tap returns to 0 %. Hold still for MIDI learn (LongPress).
+class KR106TouchFineSlider : public juce::Component, private juce::Timer
+{
+public:
+  static constexpr float kThrowPx = 300.f;
+
+  KR106TouchFineSlider(juce::RangedAudioParameter* param, std::function<juce::String(float)> format)
+    : mParam(param), mFormat(std::move(format)) { startTimerHz(15); }
+
+  void paint(juce::Graphics& g) override
+  {
+    auto r = getLocalBounds().toFloat().reduced(0.75f);
+    const float v = mParam ? mParam->getValue() : 0.5f;
+    g.setColour(mDragging ? juce::Colour(0xff34343a) : juce::Colour(0xff262626));
+    g.fillRoundedRectangle(r, 4.f);
+    g.setColour(juce::Colour(0xff14388f));
+    g.drawRoundedRectangle(r, 4.f, 1.f);
+
+    // bar from the centre (0 %) to the value
+    const float cx = r.getCentreX();
+    const float x = r.getX() + r.getWidth() * v;
+    g.setColour(v >= 0.5f ? juce::Colour(0xffc60a0a) : juce::Colour(0xffb8702a));
+    g.fillRoundedRectangle(juce::Rectangle<float>(juce::jmin(cx, x), r.getY() + 3.f,
+                                                  std::abs(x - cx), r.getHeight() - 6.f), 2.f);
+    // handle and centre detent
+    g.setColour(juce::Colour(0xffe4e4e4));
+    g.fillRoundedRectangle(juce::Rectangle<float>(x - 2.f, r.getY() + 2.f, 4.f, r.getHeight() - 4.f), 1.5f);
+    g.setColour(juce::Colours::white.withAlpha(0.35f));
+    g.fillRect(cx, r.getY() + 1.f, 0.8f, r.getHeight() - 2.f);
+
+    g.setColour(juce::Colours::white);
+    g.setFont(juce::FontOptions(11.f));
+    g.drawText(mFormat ? mFormat(v) : juce::String(v, 2), getLocalBounds(), juce::Justification::centred);
+  }
+
+  void mouseDown(const juce::MouseEvent&) override
+  {
+    if (!mParam) return;
+    mStart = mParam->getValue();
+    mParam->beginChangeGesture();
+    mDragging = true;
+    repaint();
+  }
+  void mouseDrag(const juce::MouseEvent& e) override
+  {
+    if (!mParam || !mDragging) return;
+    float v = juce::jlimit(0.f, 1.f, mStart + e.getOffsetFromDragStart().x / kThrowPx);
+    if (std::abs(v - 0.5f) < 0.004f) v = 0.5f;                  // detent at 0 %
+    mParam->setValueNotifyingHost(v);
+    repaint();
+  }
+  void mouseUp(const juce::MouseEvent&) override
+  {
+    if (mParam && mDragging) mParam->endChangeGesture();
+    mDragging = false;
+    repaint();
+  }
+  void mouseDoubleClick(const juce::MouseEvent&) override
+  {
+    if (!mParam) return;
+    mParam->beginChangeGesture();
+    mParam->setValueNotifyingHost(0.5f);
+    mParam->endChangeGesture();
+    repaint();
+  }
+
+private:
+  void timerCallback() override { if (isShowing()) repaint(); }
+  juce::RangedAudioParameter* mParam;
+  std::function<juce::String(float)> mFormat;
+  float mStart = 0.5f;
+  bool mDragging = false;
+};
+
+// ---------------------------------------------------------------------------
 // Horizontal bar meter (gain reduction / level).  value() returns 0..1.
 class KR106TouchMeter : public juce::Component, private juce::Timer
 {

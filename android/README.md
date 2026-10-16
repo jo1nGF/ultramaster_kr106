@@ -37,7 +37,7 @@ A terceira aba **Mod** tem:
 - **Envelope** com os controles do XADSR: Attack, Decay, S-Start (nível de sustain), S-Time (tempo
   para o sustain cair a zero), Release, Amp e Velocity.
 - **Matriz** de 12 linhas: Source (None, LFO 1, LFO 2, Envelope), Target (escolhe um grupo e depois o
-  destino) e Amount (-100 % a +100 %). A profundidade final é o amount da linha vezes o Amount do LFO.
+  destino) e Amount, um slider horizontal: arraste para a esquerda ou direita (cerca de 300 px dão o curso todo, -100 % a +100 %; cada pixel é cerca de 0,7 %). Duplo toque volta a 0 %, e segurar o dedo faz MIDI learn. A profundidade final é o amount da linha vezes o Amount do LFO.
 
 Destinos disponíveis (34, em grupos): VCF, HPF, VCA, DCO LFO/PWM/Sub/Noise, Tuning, LFO Rate,
 envelope principal, Tape delay, Digital delay, Clouds e Arp/limiter. Modos (60/106), liga/desliga

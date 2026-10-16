@@ -485,18 +485,14 @@ KR106Editor::KR106Editor(KR106AudioProcessor& p)
         mModChoices.push_back(add(new KR106TouchChoice("Target",
             [this, pT]() { return juce::String(kr106::kModTargetNames[kr106::modTargetFromValue(mProcessor.getParam(pT)->getValue())]); },
             [this, r, x0, y]() { showModTargetMenu(r, { x0 + 78, y, 250, 20 }); }), x0 + 78, y, 250, 20));
-        mModChoices.push_back(add(new KR106TouchChoice("Amount",
-            [this, pA]() {
-              const int pct = juce::roundToInt(200.f * mProcessor.getParam(pA)->getValue() - 100.f);
-              return juce::String(pct > 0 ? "+" : "") + juce::String(pct) + " %"; },
-            [this, pA, x0, y]() {
-              juce::StringArray names;
-              for (int k = -10; k <= 10; k++) names.add(juce::String(k > 0 ? "+" : "") + juce::String(k * 10) + " %");
-              const int pct = juce::roundToInt(200.f * mProcessor.getParam(pA)->getValue() - 100.f);
-              const int curIdx = juce::jlimit(0, 20, juce::roundToInt(pct / 10.f) + 10);
-              showChoiceMenu(names, curIdx, { x0 + 334, y, 86, 20 },
-                             [this, pA](int k) { mProcessor.getParam(pA)->setValueNotifyingHost((k - 10) * 0.05f + 0.5f); });
-            }), x0 + 334, y, 86, 20));
+        {
+          auto* sl = add(new KR106TouchFineSlider(param(pA), [](float v) {
+              const int pct = juce::roundToInt(200.f * v - 100.f);
+              return juce::String(pct > 0 ? "+" : "") + juce::String(pct) + " %"; }),
+            x0 + 334, y, 86, 20);
+          mLearnableParams.push_back(pA);
+          mLearnableControls.push_back({ pA, sl });
+        }
       }
     }
     const int lastModChild = mContent.getNumChildComponents();
