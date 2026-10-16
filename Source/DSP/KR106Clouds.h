@@ -30,7 +30,15 @@
 
 namespace kr106 {
 
-// Small Freeverb-style stereo reverb for the cloud
+// Stereo "Space" reverb for the cloud: a dense, deep tail.
+//
+//   in -> pre-delay (22 ms) -> 8 input diffusers (smear transients into a cloud)
+//      -> tank: 8 damped combs per channel (bigger room than the original, feedback
+//         0.93 = long decay, damping 0.42 = dark, warm tail) -> 4 output all-passes
+//      -> stereo out
+//
+// Compared with the first version (see the measurements in the README): longer decay,
+// much higher echo density in the first 100 ms, darker high end, same stereo width.
 class CloudReverb
 {
 public:
@@ -38,43 +46,83 @@ public:
   {
     static const int combT[8] = { 1116, 1188, 1277, 1356, 1422, 1491, 1557, 1617 };
     static const int apT[4]   = { 556, 441, 341, 225 };
+    static const int dfT[kDiffN] = { 113, 157, 241, 337, 61, 89, 127, 181 };
     const float k = sr / 44100.f;
+    mPre.assign(static_cast<size_t>(0.022f * sr) + 2, 0.f);
+    mPrePos = 0;
+    for (int i = 0; i < kDiffN; i++) { mDiff[i].assign(static_cast<size_t>(dfT[i] * k) + 2, 0.f); mDiffPos[i] = 0; }
     for (int c = 0; c < 2; c++)
     {
-      for (int i = 0; i < 8; i++) { mComb[c][i].assign(static_cast<size_t>(combT[i] * k) + (c ? 23 : 0) + 1, 0.f); mCombPos[c][i] = 0; mCombLP[c][i] = 0.f; }
-      for (int i = 0; i < 4; i++) { mAp[c][i].assign(static_cast<size_t>(apT[i] * k) + (c ? 23 : 0) + 1, 0.f); mApPos[c][i] = 0; }
+      for (int i = 0; i < 8; i++)
+      {
+        mComb[c][i].assign(static_cast<size_t>(combT[i] * kRoomScale * k) + (c ? 23 : 0) + 2, 0.f);
+        mCombPos[c][i] = 0; mCombLP[c][i] = 0.f;
+      }
+      for (int i = 0; i < 4; i++) { mAp[c][i].assign(static_cast<size_t>(apT[i] * k) + (c ? 23 : 0) + 2, 0.f); mApPos[c][i] = 0; }
     }
   }
+
   void Process(float in, float& outL, float& outR)
   {
-    const float x = in * 0.015f;
+    // pre-delay
+    const size_t pp = mPrePos;
+    const float d = mPre[pp];
+    mPre[pp] = in;
+    mPrePos = (pp + 1) % mPre.size();
+    float x = d * kIn;
+
+    // input diffusion (all-pass, g = 0.62)
+    for (int i = 0; i < kDiffN; i++)
+    {
+      auto& b = mDiff[i]; size_t& p = mDiffPos[i];
+      const float bo = b[p];
+      const float y = bo - kDiffG * x;
+      b[p] = x + kDiffG * y;
+      x = y;
+      if (++p >= b.size()) p = 0;
+    }
+
+    // tank + output diffusion, per channel
     float o[2];
     for (int c = 0; c < 2; c++)
     {
+      const float xc = x;
       float sum = 0.f;
       for (int i = 0; i < 8; i++)
       {
         auto& b = mComb[c][i]; size_t& p = mCombPos[c][i];
-        float y = b[p];
+        const float y = b[p];
         mCombLP[c][i] = y * (1.f - kDamp) + mCombLP[c][i] * kDamp;
-        b[p] = x + mCombLP[c][i] * kRoom;
+        b[p] = xc + mCombLP[c][i] * kRoom;
         if (++p >= b.size()) p = 0;
         sum += y;
       }
       for (int i = 0; i < 4; i++)
       {
         auto& b = mAp[c][i]; size_t& p = mApPos[c][i];
-        float bo = b[p];
+        const float bo = b[p];
         b[p] = sum + bo * 0.5f;
         sum = bo - sum;
         if (++p >= b.size()) p = 0;
       }
-      o[c] = sum * 3.f;
+      o[c] = sum * kOut;
     }
     outL = o[0]; outR = o[1];
   }
+
 private:
-  static constexpr float kRoom = 0.86f, kDamp = 0.3f;
+  static constexpr float kRoomScale = 1.18f;   // bigger room than before -> deeper
+  static constexpr float kRoom = 0.93f;        // feedback: long decay
+  static constexpr float kDamp = 0.42f;        // damping: darker, warmer tail
+  static constexpr int kDiffN = 8;             // input diffusion stages
+  static constexpr float kDiffG = 0.66f;       // input diffusion coefficient
+  static constexpr float kIn = 0.015f;
+  static constexpr float kOut = 2.6f;
+
+  std::vector<float> mPre;
+  size_t mPrePos = 0;
+  std::vector<float> mDiff[kDiffN];
+  size_t mDiffPos[kDiffN] = {};
   std::vector<float> mComb[2][8], mAp[2][4];
   size_t mCombPos[2][8] = {}, mApPos[2][4] = {};
   float mCombLP[2][8] = {};

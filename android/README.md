@@ -50,7 +50,7 @@ envelope, chorus e arpejador. FX: tape delay, delay digital, limiter, gravador d
 Página FX. Grava a entrada num buffer de 2 s e toca grãos dele: Position (quão atrás), Size
 (20 ms a 1,2 s), Pitch (-24 a +24 semitons), Density (1 a 80 grãos/s), Texture (janela e
 aleatoriedade), Spread (panorama), Feedback, Reverb e Mix. **Freeze** para a gravação e faz os
-grãos tocarem o buffer congelado. O visor mostra os grãos sobre os últimos 2 s. Mix em 0 deixa
+grãos tocarem o buffer congelado. O reverb do Clouds é mais profundo que o da primeira versão: a cauda dura cerca de 3 s (antes 1,3 s), com mais difusão no início (menos ecos separados) e tom um pouco mais escuro. O visor mostra os grãos sobre os últimos 2 s. Mix em 0 deixa
 o som idêntico.
 
 ## Limiter

@@ -50,6 +50,38 @@ static void shareFile(const juce::File& f, std::function<void(const juce::String
   if (done) done("Sharing is only available in the Android app. File: " + f.getFullPathName());
 #endif
 }
+// Android returns content:// URIs from the system pickers. URL::createInputStream() only opens
+// file:// paths (content:// goes to the HTTP stream and fails), so those go through AndroidDocument.
+static bool readPickedFile(const juce::URL& url, juce::String& name, juce::MemoryBlock& mb)
+{
+  name = url.getFileName();
+  if (url.getScheme() == "content")
+  {
+    auto doc = juce::AndroidDocument::fromDocument(url);
+    if (! doc.hasValue()) return false;
+    name = doc.getInfo().getName();
+    auto in = doc.createInputStream();
+    if (in == nullptr) return false;
+    in->readIntoMemoryBlock(mb);
+    return mb.getSize() > 0;
+  }
+  std::unique_ptr<juce::InputStream> in(url.createInputStream(
+    juce::URL::InputStreamOptions(juce::URL::ParameterHandling::inAddress)));
+  if (in == nullptr) return false;
+  in->readIntoMemoryBlock(mb);
+  return mb.getSize() > 0;
+}
+
+static std::unique_ptr<juce::OutputStream> openPickedForWriting(const juce::URL& url)
+{
+  if (url.getScheme() == "content")
+  {
+    auto doc = juce::AndroidDocument::fromDocument(url);
+    return doc.hasValue() ? doc.createOutputStream() : nullptr;
+  }
+  return url.createOutputStream();
+}
+
 // Save as: the system document picker (any folder, Drive, USB ...).
 static void saveFileAs(const juce::File& src, const juce::String& suggestedName, const juce::String& wildcard,
                        std::function<void(const juce::String&)> done)
@@ -63,14 +95,14 @@ static void saveFileAs(const juce::File& src, const juce::String& suggestedName,
       auto url = fc.getURLResult();
       if (url.isEmpty()) return;                                   // cancelled
       std::unique_ptr<juce::InputStream> in(src.createInputStream());
-      std::unique_ptr<juce::OutputStream> out(url.createOutputStream());
+      auto out = openPickedForWriting(url);
       const bool ok = in != nullptr && out != nullptr && out->writeFromInputStream(*in, -1) > 0;
       if (out) out->flush();
       if (done) done(ok ? "Saved: " + url.getFileName() : juce::String("Could not save the file."));
     });
 }
-// Import: pick one or more state files / zips and hand each one's bytes over.
-static void pickImport(std::function<void(const juce::String& name, const juce::MemoryBlock&)> each,
+// Import: pick one or more state files / zips and hand each one's bytes over (ok = could read it).
+static void pickImport(std::function<void(const juce::String& name, const juce::MemoryBlock&, bool ok)> each,
                        std::function<void()> finished)
 {
   auto chooser = std::make_shared<juce::FileChooser>("Import state or zip", juce::File(), "*");   // "*": the picker has no MIME type for .kr106state
@@ -80,12 +112,10 @@ static void pickImport(std::function<void(const juce::String& name, const juce::
     {
       for (auto& url : fc.getURLResults())
       {
-        std::unique_ptr<juce::InputStream> in(url.createInputStream(
-          juce::URL::InputStreamOptions(juce::URL::ParameterHandling::inAddress)));
-        if (in == nullptr) continue;
+        juce::String name;
         juce::MemoryBlock mb;
-        in->readIntoMemoryBlock(mb);
-        if (each) each(url.getFileName(), mb);
+        const bool ok = readPickedFile(url, name, mb);
+        if (each) each(name, mb, ok);
       }
       if (finished) finished();
     });
@@ -461,16 +491,24 @@ private:
   {
     auto count = std::make_shared<int>(0);
     auto bad = std::make_shared<int>(0);
-    pickImport([count, bad](const juce::String& name, const juce::MemoryBlock& mb)
-               {
-                 int n = kr106state::importData(statesDir(), name, mb);
-                 if (n > 0) *count += n; else (*bad)++;
-               },
-               [this, count, bad]
-               {
-                 setMessage("Imported " + juce::String(*count) + " state(s)"
-                            + (*bad > 0 ? ",  " + juce::String(*bad) + " file(s) were not valid states." : juce::String(".")));
-               });
+    auto unread = std::make_shared<int>(0);
+    auto seen = std::make_shared<int>(0);
+    pickImport(
+      [count, bad, unread, seen](const juce::String& name, const juce::MemoryBlock& mb, bool ok)
+      {
+        ++*seen;
+        if (! ok) { ++*unread; return; }
+        const int n = kr106state::importData(statesDir(), name, mb);
+        if (n > 0) *count += n; else ++*bad;
+      },
+      [this, count, bad, unread, seen]
+      {
+        if (*seen == 0) { setMessage("No file was chosen."); return; }
+        juce::String m = "Imported " + juce::String(*count) + " state(s)";
+        if (*bad > 0)    m << ", " << juce::String(*bad) << " not a valid state";
+        if (*unread > 0) m << ", " << juce::String(*unread) << " could not be read";
+        setMessage(m + ".");
+      });
   }
 
   void loadStateFile(const juce::File& f)
