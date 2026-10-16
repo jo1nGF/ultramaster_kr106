@@ -28,6 +28,23 @@ O APK é assinado com a chave de debug padrão, o que basta para instalar direto
 - **Engrenagem:** abre o menu original de ajustes (vozes, oversampling, sync etc.).
   No S10, comece com 6 vozes e VCF Oversample 2x e suba se a CPU permitir.
 
+## Página Mod: LFOs, envelope e matriz
+
+A terceira aba **Mod** tem:
+- **LFO 1 e LFO 2** com os controles do XLFO: Wave (sine, triangle, square, saw up/down, smooth random,
+  S&H), Retrig, Rate, Delay (fade-in), S/H (mistura com sample & hold), Smooth, Phase e Amount.
+  O SYNC do desenho (sincronia com o tempo do DAW) ainda não está nesta versão.
+- **Envelope** com os controles do XADSR: Attack, Decay, S-Start (nível de sustain), S-Time (tempo
+  para o sustain cair a zero), Release, Amp e Velocity.
+- **Matriz** de 12 linhas: Source (None, LFO 1, LFO 2, Envelope), Target (escolhe um grupo e depois o
+  destino) e Amount (-100 % a +100 %). A profundidade final é o amount da linha vezes o Amount do LFO.
+
+Destinos disponíveis (34, em grupos): VCF, HPF, VCA, DCO LFO/PWM/Sub/Noise, Tuning, LFO Rate,
+envelope principal, Tape delay, Digital delay, Clouds e Arp/limiter. Modos (60/106), liga/desliga
+e configurações globais não são modulados.
+
+Os controles da página Mod são globais (não entram nos presets) e fazem parte do estado salvo.
+
 ## Páginas: Synth e FX
 
 As abas **Synth | FX** na barra superior trocam de página. Synth: LFO, DCO, HPF, VCF, VCA,

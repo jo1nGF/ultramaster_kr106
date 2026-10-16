@@ -1,6 +1,7 @@
 #pragma once
 
 #include <juce_audio_processors/juce_audio_processors.h>
+#include "DSP/KR106ModEngine.h"
 #include <atomic>
 #include <bitset>
 #include "DSP/KR106_DSP.h"
@@ -49,8 +50,22 @@ enum EParams
   kLimOn, kLimCeil, kLimRel,
   // Clouds (granular)
   kCldPos, kCldSize, kCldPitch, kCldDens, kCldTex, kCldSpread, kCldFb, kCldRev, kCldMix, kCldFreeze,
-  kNumParams
+  kModFirst,   // modulation block: 2 LFOs, envelope, 12-slot matrix (global, not in presets)
+  kNumParams = kModFirst + 59
 };
+
+// Offsets into the modulation block (see KR106ModEngine.h for what each control does)
+constexpr int kLfo1Wave = kModFirst + 0, kLfo1Rate = kModFirst + 1, kLfo1Amt = kModFirst + 2,
+              kLfo1Delay = kModFirst + 3, kLfo1Retrig = kModFirst + 4, kLfo1SH = kModFirst + 5,
+              kLfo1Smooth = kModFirst + 6, kLfo1Phase = kModFirst + 7;
+constexpr int kLfo2Wave = kModFirst + 8, kLfo2Rate = kModFirst + 9, kLfo2Amt = kModFirst + 10,
+              kLfo2Delay = kModFirst + 11, kLfo2Retrig = kModFirst + 12, kLfo2SH = kModFirst + 13,
+              kLfo2Smooth = kModFirst + 14, kLfo2Phase = kModFirst + 15;
+constexpr int kModEnvAtt = kModFirst + 16, kModEnvDec = kModFirst + 17, kModEnvSStart = kModFirst + 18,
+              kModEnvSTime = kModFirst + 19, kModEnvRel = kModFirst + 20, kModEnvAmp = kModFirst + 21,
+              kModEnvVel = kModFirst + 22;
+constexpr int kModRouteBase = kModFirst + 23;     // 12 rows x (source, target, amount)
+constexpr int kModRows = 12;
 
 class KR106AudioProcessor : public juce::AudioProcessor
 {
@@ -144,6 +159,13 @@ public:
 
   // Keyboard held-note display (audio thread writes, UI timer reads)
   std::bitset<128> mKeyboardHeld;
+
+  // Modulation matrix: sources (LFO 1, LFO 2, envelope) -> curated parameters
+  void applyModulation(int nFrames, const juce::MidiBuffer& midi);
+  kr106::ModLFO mModLfo[2];
+  kr106::ModEnv mModEnv;
+  float mModSent[kNumParams] = {};
+  bool  mModActive[kNumParams] = {};
 
   void publishLatchedNotes();                       // audio thread
   std::atomic<uint32_t> mLatchVer{0};

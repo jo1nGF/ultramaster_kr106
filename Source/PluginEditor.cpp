@@ -171,12 +171,12 @@ KR106Editor::KR106Editor(KR106AudioProcessor& p)
         add(new KR106IconButton(dbSvg, [this]() { mPresetDisplay->openContextMenu(); }), 236, 17, 30, 30);
         add(new KR106IconButton(gearSvg, [this]() { showSettingsMenu(); }), 832, 17, 30, 30);
     }
-    mScope = add(new KR106Scope(&p), 270, 3, 128, 74);
+    mScope = add(new KR106Scope(&p), 262, 3, 128, 74);
     scaled(mScope, 0.78f);
 
     // page tabs: Synth | FX
-    mPageTabs = add(new KR106TouchTabs(juce::StringArray { "Synth", "FX" }, [this](int i) { setPage(i); }),
-                    380, 19, 78, 28);
+    mPageTabs = add(new KR106TouchTabs(juce::StringArray { "Synth", "FX", "Mod" }, [this](int i) { setPage(i); }),
+                    366, 19, 108, 28);
 
     auto* tune = knob(kTuning, 490, 29, "Tune", 1.55f);
     tune->setSnapCenter(true); tune->setGearing(205.f);
@@ -424,6 +424,83 @@ KR106Editor::KR106Editor(KR106AudioProcessor& p)
     }
     const int lastFxChild = mContent.getNumChildComponents();
     for (int i = firstFxChild; i < lastFxChild; i++) mPageCtrls[1].push_back(mContent.getChildComponent(i));
+    curPage = 0;
+    // =====================================================================
+    // PAGE 3: MOD  (2 LFOs and an envelope with the XLFO / XADSR controls, 12-slot matrix)
+    // =====================================================================
+    curPage = 2;
+    const int firstModChild = mContent.getNumChildComponents();
+    for (int l = 0; l < 2; l++)                                    // LFO 1 (x 8) and LFO 2 (x 276)
+    {
+      const int x0 = (l == 0) ? 8 : 276, ty = kRowA;
+      const int b = (l == 0) ? kLfo1Wave : kLfo2Wave;
+      tile(l == 0 ? "LFO 1" : "LFO 2", x0, ty, 262, false);
+      mModChoices.push_back(add(new KR106TouchChoice("Wave",
+          [this, b]() { return juce::String(kr106::kModWaveNames[kr106::modWaveFromValue(mProcessor.getParam(b)->getValue())]); },
+          [this, b, x0, ty]() {
+            juce::StringArray names;
+            for (int i = 0; i < kr106::kNumModWaves; i++) names.add(kr106::kModWaveNames[i]);
+            showChoiceMenu(names, kr106::modWaveFromValue(mProcessor.getParam(b)->getValue()), { x0 + 8, ty + 52, 104, 26 },
+                           [this, b](int idx) { mProcessor.getParam(b)->setValueNotifyingHost(kr106::valueFromModWave(idx)); });
+          }), x0 + 8, ty + 26, 104, 24));
+      auto* rt = new KR106TouchToggle("Retrig", param(b + 4));
+      add(rt, x0 + 124, ty + 30, 74, 18);
+      mLearnableParams.push_back(b + 4);
+      mLearnableControls.push_back({ b + 4, rt });
+      // rows as in the reference: Rate (TIME), Delay, S/H ; Smooth (SMTH), Phase, Amount (AMT)
+      knob(b + 1, x0 + 36,  ty + 72,  "Rate",   1.4f);
+      knob(b + 3, x0 + 131, ty + 72,  "Delay",  1.4f);
+      knob(b + 5, x0 + 226, ty + 72,  "S/H",    1.4f);
+      knob(b + 6, x0 + 36,  ty + 124, "Smooth", 1.4f);
+      knob(b + 7, x0 + 131, ty + 124, "Phase",  1.4f);
+      knob(b + 2, x0 + 226, ty + 124, "Amount", 1.4f);
+    }
+    {   // ENVELOPE (XADSR controls): Attack, Decay, S-Start, S-Time, Release, Amp, Velocity
+      const int x0 = 544, ty = kRowA, cy = ty + 72;
+      tile("Envelope", x0, ty, 322, false);
+      knob(kModEnvAtt,    x0 + 24,  cy, "Attack",   1.3f);
+      knob(kModEnvDec,    x0 + 70,  cy, "Decay",    1.3f);
+      knob(kModEnvSStart, x0 + 116, cy, "S-Start",  1.3f);
+      knob(kModEnvSTime,  x0 + 162, cy, "S-Time",   1.3f);
+      knob(kModEnvRel,    x0 + 208, cy, "Release",  1.3f);
+      knob(kModEnvAmp,    x0 + 254, cy, "Amp",      1.3f);
+      knob(kModEnvVel,    x0 + 300, cy, "Velocity", 1.3f);
+    }
+    for (int col = 0; col < 2; col++)                              // MATRIX: 12 slots, two columns of six
+    {
+      const int x0 = (col == 0) ? 8 : 440, ty = kRowB;
+      tile(col == 0 ? "Matrix 1-6" : "Matrix 7-12", x0, ty, 426, true);
+      for (int i = 0; i < 6; i++)
+      {
+        const int r = col * 6 + i, y = ty + 24 + i * 22;
+        const int pS = kModRouteBase + 3 * r, pT = pS + 1, pA = pS + 2;
+        mModChoices.push_back(add(new KR106TouchChoice("Source",
+            [this, pS]() { return juce::String(kr106::kModSourceNames[kr106::modSourceFromValue(mProcessor.getParam(pS)->getValue())]); },
+            [this, pS, x0, y]() {
+              juce::StringArray names;
+              for (int k = 0; k < kr106::kNumModSources; k++) names.add(kr106::kModSourceNames[k]);
+              showChoiceMenu(names, kr106::modSourceFromValue(mProcessor.getParam(pS)->getValue()), { x0 + 6, y, 66, 20 },
+                             [this, pS](int k) { mProcessor.getParam(pS)->setValueNotifyingHost(k / static_cast<float>(kr106::kNumModSources - 1)); });
+            }), x0 + 6, y, 66, 20));
+        mModChoices.push_back(add(new KR106TouchChoice("Target",
+            [this, pT]() { return juce::String(kr106::kModTargetNames[kr106::modTargetFromValue(mProcessor.getParam(pT)->getValue())]); },
+            [this, r, x0, y]() { showModTargetMenu(r, { x0 + 78, y, 250, 20 }); }), x0 + 78, y, 250, 20));
+        mModChoices.push_back(add(new KR106TouchChoice("Amount",
+            [this, pA]() {
+              const int pct = juce::roundToInt(200.f * mProcessor.getParam(pA)->getValue() - 100.f);
+              return juce::String(pct > 0 ? "+" : "") + juce::String(pct) + " %"; },
+            [this, pA, x0, y]() {
+              juce::StringArray names;
+              for (int k = -10; k <= 10; k++) names.add(juce::String(k > 0 ? "+" : "") + juce::String(k * 10) + " %");
+              const int pct = juce::roundToInt(200.f * mProcessor.getParam(pA)->getValue() - 100.f);
+              const int curIdx = juce::jlimit(0, 20, juce::roundToInt(pct / 10.f) + 10);
+              showChoiceMenu(names, curIdx, { x0 + 334, y, 86, 20 },
+                             [this, pA](int k) { mProcessor.getParam(pA)->setValueNotifyingHost((k - 10) * 0.05f + 0.5f); });
+            }), x0 + 334, y, 86, 20));
+      }
+    }
+    const int lastModChild = mContent.getNumChildComponents();
+    for (int i = firstModChild; i < lastModChild; i++) mPageCtrls[2].push_back(mContent.getChildComponent(i));
     curPage = 0;
     setPage(0);
 
@@ -1281,13 +1358,30 @@ void KR106Editor::paintTouchBackground(juce::Graphics& g)
 
 void KR106Editor::setPage(int page)
 {
-    mPage = juce::jlimit(0, 1, page);
-    for (auto* c : mPageCtrls[1]) c->setVisible(mPage == 1);
-    // page 0 controls = everything that is not in page 1 and not part of the top bar/hidden items:
-    // they are tracked by exclusion, so only toggle those recorded for page 1 and the page-0 set below
-    for (auto* c : mPageCtrls[0]) c->setVisible(mPage == 0);
+    mPage = juce::jlimit(0, 2, page);
+    for (int g = 0; g < 3; g++)
+        for (auto* ctrl : mPageCtrls[g]) ctrl->setVisible(g == mPage);
     if (mPageTabs) mPageTabs->setSelected(mPage);
     repaint();
+}
+
+// Two short menus: group first, then the target inside it.
+void KR106Editor::showModTargetMenu(int row, juce::Rectangle<int> anchor)
+{
+    const int pT = kModRouteBase + 3 * row + 1;
+    const int curT = kr106::modTargetFromValue(mProcessor.getParam(pT)->getValue());
+    juce::StringArray groups;
+    for (int g = 0; g < kr106::kNumModGroups; g++) groups.add(kr106::kModGroupNames[g]);
+    showChoiceMenu(groups, kr106::modGroupOf(curT), anchor,
+        [this, pT, anchor](int g)
+        {
+            const int start = kr106::kModGroupStart[g], n = kr106::kModGroupCount[g];
+            juce::StringArray items;
+            for (int k = 0; k < n; k++) items.add(kr106::kModTargetNames[start + k]);
+            const int cur = kr106::modTargetFromValue(mProcessor.getParam(pT)->getValue());
+            showChoiceMenu(items, (cur >= start && cur < start + n) ? cur - start : 0, anchor,
+                [this, pT, start](int k) { mProcessor.getParam(pT)->setValueNotifyingHost(kr106::valueFromModTarget(start + k)); });
+        });
 }
 
 void KR106Editor::showArpMaskMenu(juce::Rectangle<int> anchor)
@@ -1352,6 +1446,7 @@ void KR106Editor::paint(juce::Graphics& g)
 void KR106Editor::timerCallback()
 {
 #if KR106_TOUCH
+    for (auto* ch : mModChoices) ch->refresh();
     if (mDDModeBtn) mDDModeBtn->refresh();
     if (mLfoWaveBtn) mLfoWaveBtn->refresh();
     if (mEnvLoopBtn) mEnvLoopBtn->refresh();

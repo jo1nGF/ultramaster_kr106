@@ -68,7 +68,9 @@ private:
 
     // Two pages: 0 = Synth, 1 = FX (delays, Clouds, limiter, recorder)
     int mPage = 0;
-    std::vector<juce::Component*> mPageCtrls[2];
+    std::vector<juce::Component*> mPageCtrls[3];
+    std::vector<KR106TouchChoice*> mModChoices;      // matrix / LFO selectors, refreshed on the timer
+    void showModTargetMenu(int row, juce::Rectangle<int> anchor);
     KR106TouchTabs* mPageTabs = nullptr;
     void setPage(int page);
 

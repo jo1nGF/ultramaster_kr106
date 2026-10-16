@@ -545,6 +545,44 @@ KR106AudioProcessor::KR106AudioProcessor()
   addSlider(kCldMix,    "Clouds Mix",      0.f,   0.f, 1.f, fmtPct, parsePct);
   addBool(kCldFreeze,   "Clouds Freeze",   false);
 
+  // Modulation: LFO 1 / LFO 2 (same controls as the XLFO reference), envelope (XADSR), matrix
+  auto nm = [](const juce::String& s) { return s.toStdString(); };
+  SFV fmtModWave = [](float v, int) -> juce::String { return kr106::kModWaveNames[kr106::modWaveFromValue(v)]; };
+  SFV fmtModRate = [](float v, int) -> juce::String { return juce::String(0.05f * std::pow(400.f, v), 2) + " Hz"; };
+  SFV fmtModDelay = [](float v, int) -> juce::String { return juce::String(5.f * v * v, 2) + " s"; };
+  SFV fmtModSmooth = [](float v, int) -> juce::String { return juce::String(0.2f * v * v, 2) + " s"; };
+  SFV fmtModPhase = [](float v, int) -> juce::String { return juce::String(juce::roundToInt(v * 360.f)) + " deg"; };
+  for (int l = 0; l < 2; l++)
+  {
+    const int b = (l == 0) ? kLfo1Wave : kLfo2Wave;
+    const juce::String pre = "LFO " + juce::String(l + 1) + " ";
+    addSlider(b + 0, nm(pre + "Wave").c_str(), 0.f, 0.f, 1.f, fmtModWave);
+    addSlider(b + 1, nm(pre + "Rate").c_str(), 0.5f, 0.f, 1.f, fmtModRate);
+    addSlider(b + 2, nm(pre + "Amount").c_str(), 1.f, 0.f, 1.f, fmtPct, parsePct);
+    addSlider(b + 3, nm(pre + "Delay").c_str(), 0.f, 0.f, 1.f, fmtModDelay);
+    addBool(b + 4, nm(pre + "Retrig").c_str(), false);
+    addSlider(b + 5, nm(pre + "S&H").c_str(), 0.f, 0.f, 1.f, fmtPct, parsePct);
+    addSlider(b + 6, nm(pre + "Smooth").c_str(), 0.f, 0.f, 1.f, fmtModSmooth);
+    addSlider(b + 7, nm(pre + "Phase").c_str(), 0.f, 0.f, 1.f, fmtModPhase);
+  }
+  addSlider(kModEnvAtt,    "Mod Env Attack",   0.f,  0.f, 1.f, fmtPct, parsePct);
+  addSlider(kModEnvDec,    "Mod Env Decay",    0.3f, 0.f, 1.f, fmtPct, parsePct);
+  addSlider(kModEnvSStart, "Mod Env S-Start",  0.5f, 0.f, 1.f, fmtPct, parsePct);
+  addSlider(kModEnvSTime,  "Mod Env S-Time",   0.5f, 0.f, 1.f, fmtPct, parsePct);
+  addSlider(kModEnvRel,    "Mod Env Release",  0.2f, 0.f, 1.f, fmtPct, parsePct);
+  addSlider(kModEnvAmp,    "Mod Env Amp",      1.f,  0.f, 1.f, fmtPct, parsePct);
+  addSlider(kModEnvVel,    "Mod Env Velocity", 0.f,  0.f, 1.f, fmtPct, parsePct);
+  SFV fmtSrc = [](float v, int) -> juce::String { return kr106::kModSourceNames[kr106::modSourceFromValue(v)]; };
+  SFV fmtTgt = [](float v, int) -> juce::String { return kr106::kModTargetNames[kr106::modTargetFromValue(v)]; };
+  SFV fmtAmt = [](float v, int) -> juce::String { return juce::String(juce::roundToInt(200.f * v - 100.f)) + " %"; };
+  for (int r = 0; r < kModRows; r++)
+  {
+    const juce::String pre = "Mod " + juce::String(r + 1) + " ";
+    addSlider(kModRouteBase + 3 * r + 0, nm(pre + "Source").c_str(), 0.f, 0.f, 1.f, fmtSrc);
+    addSlider(kModRouteBase + 3 * r + 1, nm(pre + "Target").c_str(), 0.f, 0.f, 1.f, fmtTgt);
+    addSlider(kModRouteBase + 3 * r + 2, nm(pre + "Amount").c_str(), 0.5f, 0.f, 1.f, fmtAmt);
+  }
+
   // Build factory presets from compiled-in data (raw 7-bit integer values)
   constexpr int kFactoryValues = sizeof(KR106FactoryPreset::values) / sizeof(int);
   for (int j = 0; j < kNumFactoryPresets; j++)
@@ -604,6 +642,12 @@ void KR106AudioProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
   for (int i = 0; i < mDSP.mActiveVoices; i++)
     voicesBefore += juce::String(mDSP.mVoiceNote[i]) + " ";
   dbgLog("  voiceNote before Reset: [" + voicesBefore.trim() + "]");
+
+  mModLfo[0].Init(static_cast<float>(sampleRate), 0x1234567u);
+
+  mModLfo[1].Init(static_cast<float>(sampleRate), 0x7654321u);
+
+  mModEnv.Init(static_cast<float>(sampleRate));
 
   mDSP.Reset(sampleRate, samplesPerBlock);
   mFadeInRemaining = mFadeInTotal;
@@ -1133,6 +1177,7 @@ void KR106AudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
                          nOutputs > 1 ? buffer.getWritePointer(1) : buffer.getWritePointer(0) };
   float vol = getParamValue(kMasterVol);
   mDSP.mMasterVol = vol * vol; // audio taper (squared)
+  applyModulation(nFrames, midiMessages);
   mDSP.ProcessBlock(nullptr, outputs, nOutputs, nFrames);
   publishLatchedNotes();
 
@@ -1396,6 +1441,77 @@ void KR106AudioProcessor::parameterChanged(int paramIdx, float newValue)
            + " voiceNote=[" + voicesAfter.trim() + "]");
       if (newValue < 0.5f)
         mHoldOff = true;
+    }
+  }
+}
+
+// ---- modulation matrix --------------------------------------------------------------------
+// Curated targets: generic parameters that go straight to the DSP. Power, the 60/106 switch and
+// the settings switches are left out because they have their own side effects.
+static const int kModTargetParam[kr106::kNumModTargets] = {
+  kVcfFreq, kVcfRes, kVcfEnv, kVcfLfo, kHpfFreq, kVcaLevel,
+  kDcoLfo, kDcoPwm, kDcoSub, kDcoNoise, kTuning, kLfoRate,
+  kEnvA, kEnvD, kEnvS, kEnvR,
+  kDelayTime, kDelayFeedback, kDelayMix, kDelayTone, kDelayWow,
+  kDDelayTime, kDDelayFeedback, kDDelayMix,
+  kCldPos, kCldSize, kCldPitch, kCldDens, kCldMix, kCldRev,
+  kArpRate, kArpSwing, kArpGate, kLimCeil
+};
+
+void KR106AudioProcessor::applyModulation(int nFrames, const juce::MidiBuffer& midi)
+{
+  for (const auto meta : midi)
+  {
+    const auto msg = meta.getMessage();
+    if (msg.isNoteOn())
+    {
+      mModEnv.NoteOn(msg.getFloatVelocity());
+      if (getParamValue(kLfo1Retrig) > 0.5f) mModLfo[0].Retrigger(getParamValue(kLfo1Phase));
+      if (getParamValue(kLfo2Retrig) > 0.5f) mModLfo[1].Retrigger(getParamValue(kLfo2Phase));
+    }
+    else if (msg.isNoteOff() && mDSP.mHeldNotes.none())
+      mModEnv.NoteOff();
+  }
+
+  float src[4] = { 0.f, 0.f, 0.f, 0.f };
+  src[1] = mModLfo[0].Process(nFrames, getParamValue(kLfo1Wave), getParamValue(kLfo1Rate), getParamValue(kLfo1Amt),
+                              getParamValue(kLfo1Delay), getParamValue(kLfo1SH), getParamValue(kLfo1Smooth), getParamValue(kLfo1Phase));
+  src[2] = mModLfo[1].Process(nFrames, getParamValue(kLfo2Wave), getParamValue(kLfo2Rate), getParamValue(kLfo2Amt),
+                              getParamValue(kLfo2Delay), getParamValue(kLfo2SH), getParamValue(kLfo2Smooth), getParamValue(kLfo2Phase));
+  src[3] = mModEnv.Process(nFrames, getParamValue(kModEnvAtt), getParamValue(kModEnvDec), getParamValue(kModEnvSStart),
+                           getParamValue(kModEnvSTime), getParamValue(kModEnvRel), getParamValue(kModEnvAmp), getParamValue(kModEnvVel));
+
+  float add[kNumParams] = {};
+  bool hit[kNumParams] = {};
+  for (int r = 0; r < kModRows; r++)
+  {
+    const int s = kr106::modSourceFromValue(getParamValue(kModRouteBase + 3 * r));
+    const int t = kr106::modTargetFromValue(getParamValue(kModRouteBase + 3 * r + 1));
+    const float amt = 2.f * getParamValue(kModRouteBase + 3 * r + 2) - 1.f;   // bipolar -1 .. +1
+    if (s == 0 || std::fabs(amt) < 1e-4f) continue;
+    const int p = kModTargetParam[t];
+    add[p] += src[s] * amt;
+    hit[p] = true;
+  }
+
+  for (int t = 0; t < kr106::kNumModTargets; t++)
+  {
+    const int p = kModTargetParam[t];
+    const float base = mParams[p]->getValue();
+    if (hit[p])
+    {
+      const float v = juce::jlimit(0.f, 1.f, base + add[p]);
+      if (!mModActive[p] || std::fabs(v - mModSent[p]) > 1e-5f)
+      {
+        mDSP.SetParam(p, static_cast<double>(v));
+        mModSent[p] = v;
+        mModActive[p] = true;
+      }
+    }
+    else if (mModActive[p])
+    {
+      mDSP.SetParam(p, static_cast<double>(base));          // no longer modulated: back to the user value
+      mModActive[p] = false;
     }
   }
 }
