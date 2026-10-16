@@ -29,7 +29,10 @@ void KR106DSP<T>::SetParam(int paramIdx, double value)
     kDelayTime, kDelayFeedback, kDelayMix, kDelayTone, kDelayWow,
     kDelayWowRate, kArpPattern, kArpShLoop,
     kDDelayTime, kDDelayFeedback, kDDelayMix, kDDelayTone, kDDelayLowCut, kDDelayMode,
-    kLfoWave, kEnvLoop
+    kLfoWave, kEnvLoop,
+    kArpSwing, kArpGate, kArpRatchet, kArpChord, kArpAutoMode, kArpAutoEvery, kArpAutoMask,
+    kLimOn, kLimCeil, kLimRel,
+    kCldPos, kCldSize, kCldPitch, kCldDens, kCldTex, kCldSpread, kCldFb, kCldRev, kCldMix, kCldFreeze
   };
 
   switch (paramIdx)
@@ -320,8 +323,7 @@ void KR106DSP<T>::SetParam(int paramIdx, double value)
     case kDelayWow:      mTapeDelay.SetWow(static_cast<float>(value));      break;
     case kDelayWowRate:  mTapeDelay.SetWowRate(static_cast<float>(value));  break;
     case kArpPattern:
-      mArp.mPattern = kr106::patternFromValue(static_cast<float>(value));
-      mArp.mCounter = 0; mArp.mWalkPos = 0;
+      mArp.SetBasePattern(kr106::patternFromValue(static_cast<float>(value)));
       break;
     case kArpShLoop:     mArp.SetShLoop(kr106::shLoopFromValue(static_cast<float>(value))); break;
     case kDDelayTime:     mDigitalDelay.SetTime(static_cast<float>(value));     break;
@@ -330,6 +332,26 @@ void KR106DSP<T>::SetParam(int paramIdx, double value)
     case kDDelayTone:     mDigitalDelay.SetTone(static_cast<float>(value));     break;
     case kDDelayLowCut:   mDigitalDelay.SetLowCut(static_cast<float>(value));   break;
     case kDDelayMode:     mDigitalDelay.SetMode(static_cast<float>(value));     break;
+    case kArpSwing:     mArp.mSwing = static_cast<float>(value); break;
+    case kArpGate:      mArp.mGate = 0.1f + 0.9f * static_cast<float>(value); break;
+    case kArpRatchet:   mArp.mRatchet = kr106::ratchetFromValue(static_cast<float>(value)); break;
+    case kArpChord:     mArp.mChord = value > 0.5; mArp.mCounter = 0; break;
+    case kArpAutoMode:  mArp.SetAutoMode(kr106::autoModeFromValue(static_cast<float>(value))); break;
+    case kArpAutoEvery: mArp.mAutoEvery = kr106::kAutoEverySteps[kr106::autoEveryFromValue(static_cast<float>(value))]; break;
+    case kArpAutoMask:  mArp.mAutoMask = kr106::autoMaskFromValue(static_cast<float>(value)); break;
+    case kLimOn:        mLimiter.SetOn(value > 0.5); break;
+    case kLimCeil:      mLimiter.SetCeiling(static_cast<float>(value)); break;
+    case kLimRel:       mLimiter.SetRelease(static_cast<float>(value)); break;
+    case kCldPos:       mClouds.SetPosition(static_cast<float>(value)); break;
+    case kCldSize:      mClouds.SetSize(static_cast<float>(value)); break;
+    case kCldPitch:     mClouds.SetPitch(static_cast<float>(value)); break;
+    case kCldDens:      mClouds.SetDensity(static_cast<float>(value)); break;
+    case kCldTex:       mClouds.SetTexture(static_cast<float>(value)); break;
+    case kCldSpread:    mClouds.SetSpread(static_cast<float>(value)); break;
+    case kCldFb:        mClouds.SetFeedback(static_cast<float>(value)); break;
+    case kCldRev:       mClouds.SetReverb(static_cast<float>(value)); break;
+    case kCldMix:       mClouds.SetMix(static_cast<float>(value)); break;
+    case kCldFreeze:    mClouds.SetFreeze(value > 0.5); break;
     case kLfoWave:        mLFO.SetWave(kr106::lfoWaveFromValue(static_cast<float>(value))); break;
     case kEnvLoop:
     {
@@ -430,13 +452,13 @@ void KR106DSP<T>::SetParam(int paramIdx, double value)
         {
           mHeldNotes.reset();
           for (int n : mArp.mHeldNotes) mHeldNotes.set(n);
-          // Keep the last arp note sounding (don't send NoteOff)
+          // Keep the arp's note(s) sounding (don't send NoteOff)
           mArp.mLastNote = -1;
+          mArp.mChordNotes.clear();
         }
-        else if (mArp.mLastNote >= 0)
+        else
         {
-          SendToSynth(mArp.mLastNote, false, 0);
-          mArp.mLastNote = -1;
+          mArp.ReleaseSounding([this](int n, int off) { SendToSynth(n, false, off); }, 0);
         }
         mArp.Reset();
       }

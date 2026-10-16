@@ -45,8 +45,8 @@ private:
 
     // Touch layout: section tiles and text labels are painted by the editor
     // (the desktop UI gets them from the background bitmap).
-    struct TouchSection { juce::String name; juce::Rectangle<int> r; bool blue; };
-    struct TouchLabel   { juce::String text; float cx; int y; int group; };   // group: 0 always, 1 tape tab, 2 digital tab
+    struct TouchSection { juce::String name; juce::Rectangle<int> r; bool blue; int page; };   // page 0 = Synth, 1 = FX
+    struct TouchLabel   { juce::String text; float cx; int y; int page; };
     std::vector<TouchSection> mTouchSections;
     std::vector<TouchLabel> mTouchLabels;
     void paintTouchBackground(juce::Graphics&);
@@ -66,14 +66,22 @@ private:
     KR106TouchChoice* mArpPatternBtn = nullptr;
     KR106TouchChoice* mArpShBtn = nullptr;
 
-    // Delay tile with two tabs: tape (1) and digital (2)
-    int mDelayTab = 1;
-    std::vector<juce::Component*> mDelayTabCtrls[2];
-    KR106TouchTabs* mDelayTabs = nullptr;
+    // Two pages: 0 = Synth, 1 = FX (delays, Clouds, limiter, recorder)
+    int mPage = 0;
+    std::vector<juce::Component*> mPageCtrls[2];
+    KR106TouchTabs* mPageTabs = nullptr;
+    void setPage(int page);
+
     KR106TouchChoice* mDDModeBtn = nullptr;
     KR106TouchChoice* mLfoWaveBtn = nullptr;
     KR106TouchToggle* mEnvLoopBtn = nullptr;
-    void setDelayTab(int tab);
+    KR106TouchToggle* mArpChordBtn = nullptr;
+    KR106TouchToggle* mLimOnBtn = nullptr;
+    KR106TouchToggle* mFreezeBtn = nullptr;
+    KR106TouchChoice* mArpAutoBtn = nullptr;
+    KR106TouchChoice* mArpEveryBtn = nullptr;
+    KR106TouchChoice* mArpMaskBtn = nullptr;
+    void showArpMaskMenu(juce::Rectangle<int> anchor);
     void showChoiceMenu(const juce::StringArray& names, int current,
                         juce::Rectangle<int> anchor, std::function<void(int)> onPick);
 

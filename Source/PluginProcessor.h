@@ -43,6 +43,12 @@ enum EParams
   kDDelayTime, kDDelayFeedback, kDDelayMix, kDDelayTone, kDDelayLowCut, kDDelayMode,
   // Patch extras: LFO waveform and looping envelope (saved with presets)
   kLfoWave, kEnvLoop,
+  // Arpeggiator feel + pattern automation (live params, not in presets)
+  kArpSwing, kArpGate, kArpRatchet, kArpChord, kArpAutoMode, kArpAutoEvery, kArpAutoMask,
+  // Master limiter
+  kLimOn, kLimCeil, kLimRel,
+  // Clouds (granular)
+  kCldPos, kCldSize, kCldPitch, kCldDens, kCldTex, kCldSpread, kCldFb, kCldRev, kCldMix, kCldFreeze,
   kNumParams
 };
 

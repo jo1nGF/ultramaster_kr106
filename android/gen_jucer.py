@@ -59,7 +59,8 @@ xml = f'''<?xml version="1.0" encoding="UTF-8"?>
                    androidMinimumSDK="24" androidInternetNeeded="0"
                    androidExternalWriteNeeded="0" androidReadMediaAudioPermission="0"
                    androidReadMediaImagesPermission="0" androidReadMediaVideoPermission="0"
-                   androidPushNotifications="0" androidBluetoothScanNeeded="1"
+                   androidPushNotifications="0" androidEnableContentSharing="1"
+                   androidBluetoothScanNeeded="1"
                    androidBluetoothConnectNeeded="1"
                    extraCompilerFlags="-ffp-contract=fast -fno-math-errno">
       <CONFIGURATIONS>

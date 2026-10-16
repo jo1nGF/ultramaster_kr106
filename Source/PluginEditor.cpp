@@ -110,9 +110,10 @@ KR106Editor::KR106Editor(KR106AudioProcessor& p)
         ctrl->setTransform(juce::AffineTransform::scale(f).translated((float) b.getX(), (float) b.getY()));
         return ctrl;
     };
-    auto lbl = [&](const char* t, float cx, int y, int group = 0) { mTouchLabels.push_back({ t, cx, y, group }); };
+    int curPage = 0;              // page the controls/labels/tiles being built belong to
+    auto lbl = [&](const char* t, float cx, int y) { mTouchLabels.push_back({ t, cx, y, curPage }); };
     auto tile = [&](const char* name, int x, int y, int w, bool blue) {
-        mTouchSections.push_back({ name, { x, y, w, kTileH }, blue });
+        mTouchSections.push_back({ name, { x, y, w, kTileH }, blue, curPage });
     };
     // Control helpers: x = left edge in base units, ty = tile top
     auto fader = [&](int idx, int x, int ty, const char* l) {
@@ -134,58 +135,65 @@ KR106Editor::KR106Editor(KR106AudioProcessor& p)
         addML(idx, c, x, ty + kFadeY + 8, 17, 28); scaled(c, kBF);
         lbl(l, x + 16.f, ty + labelY);
     };
-    auto knob = [&](int idx, int cx, int cy, const char* l, float f, int group = 0) {
+    auto knob = [&](int idx, int cx, int cy, const char* l, float f) {
         auto* c = new KR106Knob(param(idx), smallKnob, tip, 32);
         c->setMidiLearn(&p, idx);
         mLearnableParams.push_back(idx); mLearnableControls.push_back({ idx, c });
         add(c, cx - (int) (14 * f), cy - (int) (13.5f * f), 28, 27); scaled(c, f);
-        lbl(l, (float) cx, cy + (int) (11.f * f) + 11, group);   // label sits below the value arc (radius 11)
-        if (group > 0) mDelayTabCtrls[group - 1].push_back(c);
+        lbl(l, (float) cx, cy + (int) (11.f * f) + 11);   // label sits below the value arc (radius 11)
         return c;
     };
 
     // ---- widths: row A (LFO, DCO, HPF, VCF) and row B (VCA, ENV, CHORUS, DELAY, ARP)
     const int wA[4] = { 150, 348, 56, 262 };   // DCO: Sub button ends at x0+340
-    const int wB[5] = { 86, 188, 88, 252, 230 };
+    const int wB[4] = { 86, 188, 88, 474 };   // delays moved to the FX page: the arpeggiator gets the room
     auto gapFor = [&](const int* w, int n) {
         int sum = 0; for (int i = 0; i < n; i++) sum += w[i];
         return std::max(2, (kBaseWidth - 16 - sum) / (n - 1));
     };
-    const int gA = gapFor(wA, 4), gB = gapFor(wB, 5);
-    int xA[4], xB[5];
+    const int gA = gapFor(wA, 4), gB = gapFor(wB, 4);
+    int xA[4], xB[4];
     { int x = 8; for (int i = 0; i < 4; i++) { xA[i] = x; x += wA[i] + gA; } }
-    { int x = 8; for (int i = 0; i < 5; i++) { xB[i] = x; x += wB[i] + gB; } }
+    { int x = 8; for (int i = 0; i < 4; i++) { xB[i] = x; x += wB[i] + gB; } }
 
     // ---------------- TOP BAR ----------------
+    curPage = -1;                 // top-bar labels show on every page
     scaled(add(new KR106PowerSwitch(param(kPower)), 12, 17, 15, 19), 1.6f);
     lbl("Power", 24.f, 58);
 
-    mPresetDisplay = add(new KR106PresetDisplay(&p), 46, 21, 128, 14);
-    scaled(mPresetDisplay, 1.7f);
+    mPresetDisplay = add(new KR106PresetDisplay(&p), 40, 22, 128, 14);
+    scaled(mPresetDisplay, 1.5f);
     {
         static const char* dbSvg =
             R"(<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6a8 3 0 1 0 16 0a8 3 0 1 0 -16 0" /><path d="M4 6v6a8 3 0 0 0 16 0v-6" /><path d="M4 12v6a8 3 0 0 0 16 0v-6" /></svg>)";
         static const char* gearSvg =
             R"(<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M10.325 4.317c.426 -1.756 2.924 -1.756 3.35 0a1.724 1.724 0 0 0 2.573 1.066c1.543 -.94 3.31 .826 2.37 2.37a1.724 1.724 0 0 0 1.065 2.572c1.756 .426 1.756 2.924 0 3.35a1.724 1.724 0 0 0 -1.066 2.573c.94 1.543 -.826 3.31 -2.37 2.37a1.724 1.724 0 0 0 -2.572 1.065c-.426 1.756 -2.924 1.756 -3.35 0a1.724 1.724 0 0 0 -2.573 -1.066c-1.543 .94 -3.31 -.826 -2.37 -2.37a1.724 1.724 0 0 0 -1.065 -2.572c-1.756 -.426 -1.756 -2.924 0 -3.35a1.724 1.724 0 0 0 1.066 -2.573c-.94 -1.543 .826 -3.31 2.37 -2.37c1 .608 2.296 .07 2.572 -1.065" /><path d="M9 12a3 3 0 1 0 6 0a3 3 0 0 0 -6 0" /></svg>)";
-        add(new KR106IconButton(dbSvg, [this]() { mPresetDisplay->openContextMenu(); }), 266, 17, 30, 30);
-        add(new KR106IconButton(gearSvg, [this]() { showSettingsMenu(); }), 828, 17, 30, 30);
+        add(new KR106IconButton(dbSvg, [this]() { mPresetDisplay->openContextMenu(); }), 236, 17, 30, 30);
+        add(new KR106IconButton(gearSvg, [this]() { showSettingsMenu(); }), 832, 17, 30, 30);
     }
-    mScope = add(new KR106Scope(&p), 306, 3, 128, 74);
-    scaled(mScope, 0.82f);
+    mScope = add(new KR106Scope(&p), 270, 3, 128, 74);
+    scaled(mScope, 0.78f);
 
-    auto* tune = knob(kTuning, 456, 29, "Tune", 1.7f);
+    // page tabs: Synth | FX
+    mPageTabs = add(new KR106TouchTabs(juce::StringArray { "Synth", "FX" }, [this](int i) { setPage(i); }),
+                    380, 19, 78, 28);
+
+    auto* tune = knob(kTuning, 490, 29, "Tune", 1.55f);
     tune->setSnapCenter(true); tune->setGearing(205.f);
-    knob(kMasterVol, 504, 29, "Master", 1.7f);
-    mClipLED = dynamic_cast<KR106ClipLED*>(add(new KR106ClipLED(ledRed, 1.f), 524, 5, 9, 9));
-    knob(kPortaRate, 552, 29, "Porta", 1.7f);
+    knob(kMasterVol, 534, 29, "Master", 1.55f);
+    mClipLED = dynamic_cast<KR106ClipLED*>(add(new KR106ClipLED(ledRed, 1.f), 548, 5, 9, 9));
+    knob(kPortaRate, 578, 29, "Porta", 1.55f);
     {   auto* c = new KR106Switch(param(kPortaMode), switchV, 3, tip);
-        addML(kPortaMode, c, 586, 14, 9, 24); scaled(c, 1.5f); lbl("Mode", 593.f, 58); }
+        addML(kPortaMode, c, 608, 14, 9, 24); scaled(c, 1.5f); lbl("Mode", 615.f, 58); }
     {   auto* c = new KR106HorizontalSwitch(param(kAdsrMode), switchH, 2, tip);
-        addML(kAdsrMode, c, 610, 22, 24, 9); scaled(c, 1.9f); lbl("60 / 106", 633.f, 58); }
-    knob(kBenderDco, 682, 29, "Bnd dco", 1.7f);
-    knob(kBenderVcf, 722, 29, "Bnd vcf", 1.7f);
-    knob(kBenderLfo, 762, 29, "Bnd lfo", 1.7f);
-    add(new KR106TouchTextButton("Keys", [this]() { showKeysSheet(); }, juce::Colour(0xff9a0e0e)), 792, 18, 32, 30);
+        addML(kAdsrMode, c, 632, 22, 24, 9); scaled(c, 1.9f); lbl("60 / 106", 655.f, 58); }
+    knob(kBenderDco, 704, 29, "B.dco", 1.3f);
+    knob(kBenderVcf, 738, 29, "B.vcf", 1.3f);
+    knob(kBenderLfo, 772, 29, "B.lfo", 1.3f);
+    add(new KR106TouchTextButton("Keys", [this]() { showKeysSheet(); }, juce::Colour(0xff9a0e0e)), 798, 18, 30, 30);
+
+    curPage = 0;
+    const int firstSynthChild = mContent.getNumChildComponents();
 
     // ---------------- ROW A ----------------
     {   // LFO
@@ -264,39 +272,9 @@ KR106Editor::KR106Editor(KR106AudioProcessor& p)
         ledBtn(kChorusI,  1, x0 + 8,  ty, "I",  kLblY);
         ledBtn(kChorusII, 2, x0 + 46, ty, "II", kLblY);
     }
-    {   // DELAY tile with two tabs. Tape: Wow = depth of the delay-time LFO (pitch wobble),
-        // Speed = its rate. Digital: clean stereo echo with Stereo / Ping-pong / Dotted modes.
-        int x0 = xB[3], ty = kRowB; tile("", x0, ty, wB[3], true);
-        mDelayTabs = add(new KR106TouchTabs(juce::StringArray { "Tape delay", "Digital delay" },
-                                            [this](int i) { setDelayTab(i + 1); }),
-                         x0 + 6, ty + 1, wB[3] - 12, 18);
-        const int cy = ty + 68;
-        knob(kDelayTime,     x0 + 26,  cy, "Time",  1.75f, 1);
-        knob(kDelayFeedback, x0 + 66,  cy, "Fdbk",  1.75f, 1);
-        knob(kDelayMix,      x0 + 106, cy, "Mix",   1.75f, 1);
-        knob(kDelayTone,     x0 + 146, cy, "Tone",  1.75f, 1);
-        knob(kDelayWow,      x0 + 186, cy, "Wow",   1.75f, 1);
-        knob(kDelayWowRate,  x0 + 226, cy, "Speed", 1.75f, 1);
-
-        knob(kDDelayTime,     x0 + 26,  cy, "Time",    1.75f, 2);
-        knob(kDDelayFeedback, x0 + 66,  cy, "Fdbk",    1.75f, 2);
-        knob(kDDelayMix,      x0 + 106, cy, "Mix",     1.75f, 2);
-        knob(kDDelayTone,     x0 + 146, cy, "Tone",    1.75f, 2);
-        knob(kDDelayLowCut,   x0 + 186, cy, "Low cut", 1.75f, 2);
-        mDDModeBtn = add(new KR106TouchChoice("Mode",
-            [this]() { return juce::String(kr106::DigitalDelay::kModeNames[kr106::DigitalDelay::ModeFromValue(
-                          mProcessor.getParam(kDDelayMode)->getValue())]); },
-            [this]() {
-                int m = kr106::DigitalDelay::ModeFromValue(mProcessor.getParam(kDDelayMode)->getValue());
-                mProcessor.getParam(kDDelayMode)->setValueNotifyingHost(
-                    kr106::DigitalDelay::ValueFromMode((m + 1) % kr106::DigitalDelay::kNumModes));
-                mDDModeBtn->refresh(); }),
-            x0 + 204, cy - 18, 44, 36);
-        mDelayTabCtrls[1].push_back(mDDModeBtn);
-        setDelayTab(1);
-    }
-    {   // ARPEGGIATOR: classic controls on top, pattern + S&H cycle selectors below
-        int x0 = xB[4], ty = kRowB; tile("Arp", x0, ty, wB[4], true);
+    {   // ARPEGGIATOR: classic controls, feel knobs (swing / gate / ratchet), pattern + S&H
+        // selectors, and the pattern automation stack on the right
+        int x0 = xB[3], ty = kRowB; tile("Arp", x0, ty, wB[3], true);
         mArpRateSlider = new KR106ArpRateSlider(param(kArpRate), param(kArpQuantize), kArpRate, kArpQuantize, tip, sliderHdl, &p.mArpSyncHost);
         addSlider(kArpRate, mArpRateSlider, x0 + 8, ty + kFadeY, 20, 49)->setExtraRight(1);
         scaled(mArpRateSlider, kSF); lbl("Rate", x0 + 28.f, ty + kLblY);
@@ -305,8 +283,18 @@ KR106Editor::KR106Editor(KR106AudioProcessor& p)
         sw3(kArpMode, 3, x0 + 142, ty, "Mode", 100);
         sw3(kArpRange, 3, x0 + 182, ty, "Range", 100);
 
+        knob(kArpSwing,   x0 + 252, ty + 60, "Swing",   1.5f);
+        knob(kArpGate,    x0 + 302, ty + 60, "Gate",    1.5f);
+        knob(kArpRatchet, x0 + 352, ty + 60, "Ratchet", 1.5f);
+        mArpChordBtn = add(new KR106TouchToggle("Chord", param(kArpChord)), x0 + wB[3] - 54, ty + 2, 48, 16);
+        mLearnableParams.push_back(kArpChord);
+        mLearnableControls.push_back({ kArpChord, mArpChordBtn });
+
         auto patName = [this]() {
-            return juce::String(kr106::kPatternNames[kr106::patternFromValue(mProcessor.getParam(kArpPattern)->getValue())]);
+            const int autoMode = kr106::autoModeFromValue(mProcessor.getParam(kArpAutoMode)->getValue());
+            const int base = kr106::patternFromValue(mProcessor.getParam(kArpPattern)->getValue());
+            const int shown = autoMode ? juce::jlimit(0, kr106::kNumArpPatterns - 1, mProcessor.mDSP.mArp.mShownPattern.load()) : base;
+            return juce::String(autoMode ? "> " : "") + kr106::kPatternNames[shown];   // "> " = chosen by the automation
         };
         auto shName = [this]() {
             return juce::String(kr106::kShLoops[kr106::shLoopFromValue(mProcessor.getParam(kArpShLoop)->getValue())].name);
@@ -319,7 +307,7 @@ KR106Editor::KR106Editor(KR106AudioProcessor& p)
                            [this](int idx) {
                                mProcessor.getParam(kArpPattern)->setValueNotifyingHost(kr106::valueFromPattern(idx));
                                mArpPatternBtn->refresh(); });
-        }), x0 + 54, ty + 110, 108, 30);
+        }), x0 + 54, ty + 112, 108, 30);
         mArpShBtn = add(new KR106TouchChoice("S&H cycle", shName, [this, x0, ty]() {
             juce::StringArray names;
             for (int i = 0; i < kr106::kNumShLoops; i++) names.add(kr106::kShLoops[i].name);
@@ -328,8 +316,116 @@ KR106Editor::KR106Editor(KR106AudioProcessor& p)
                            [this](int idx) {
                                mProcessor.getParam(kArpShLoop)->setValueNotifyingHost(kr106::valueFromShLoop(idx));
                                mArpShBtn->refresh(); });
-        }), x0 + 166, ty + 110, 60, 30);
+        }), x0 + 166, ty + 112, 70, 30);
+
+        // pattern automation: Auto (off / cycle / random / ping-pong), Every N steps, which patterns
+        const int ax = x0 + wB[3] - 92;
+        mArpAutoBtn = add(new KR106TouchChoice("Auto pattern",
+            [this]() { return juce::String(kr106::kAutoModeNames[kr106::autoModeFromValue(mProcessor.getParam(kArpAutoMode)->getValue())]); },
+            [this, ax, ty]() {
+                juce::StringArray names;
+                for (int i = 0; i < kr106::kNumAutoModes; i++) names.add(kr106::kAutoModeNames[i]);
+                showChoiceMenu(names, kr106::autoModeFromValue(mProcessor.getParam(kArpAutoMode)->getValue()),
+                               { ax, ty + 24, 84, 34 },
+                               [this](int idx) {
+                                   mProcessor.getParam(kArpAutoMode)->setValueNotifyingHost(kr106::valueFromAutoMode(idx));
+                                   mArpAutoBtn->refresh(); });
+            }), ax, ty + 24, 84, 34);
+        mArpEveryBtn = add(new KR106TouchChoice("Change every",
+            [this]() { return juce::String(kr106::kAutoEverySteps[kr106::autoEveryFromValue(mProcessor.getParam(kArpAutoEvery)->getValue())]) + " steps"; },
+            [this, ax, ty]() {
+                juce::StringArray names;
+                for (int i = 0; i < kr106::kNumAutoEvery; i++) names.add(juce::String(kr106::kAutoEverySteps[i]) + " steps");
+                showChoiceMenu(names, kr106::autoEveryFromValue(mProcessor.getParam(kArpAutoEvery)->getValue()),
+                               { ax, ty + 64, 84, 34 },
+                               [this](int idx) {
+                                   mProcessor.getParam(kArpAutoEvery)->setValueNotifyingHost(kr106::valueFromAutoEvery(idx));
+                                   mArpEveryBtn->refresh(); });
+            }), ax, ty + 64, 84, 34);
+        mArpMaskBtn = add(new KR106TouchChoice("Patterns used",
+            [this]() {
+                int m = kr106::autoMaskFromValue(mProcessor.getParam(kArpAutoMask)->getValue()), n = 0;
+                for (int i = 0; i < kr106::kNumArpPatterns; i++) if (m & (1 << i)) n++;
+                return juce::String(n) + " of " + juce::String(kr106::kNumArpPatterns);
+            },
+            [this, ax, ty]() { showArpMaskMenu({ ax, ty + 104, 84, 34 }); }),
+            ax, ty + 104, 84, 34);
     }
+
+    // =====================================================================
+    // PAGE 2: FX  (tape delay, digital delay, limiter, recorder / Clouds)
+    // =====================================================================
+    const int firstFxChild = mContent.getNumChildComponents();
+    for (int i = firstSynthChild; i < firstFxChild; i++) mPageCtrls[0].push_back(mContent.getChildComponent(i));
+    curPage = 1;
+    const int wFx[4] = { 252, 252, 110, 220 };
+    const int gFx = gapFor(wFx, 4);
+    int xFx[4];
+    { int x = 8; for (int i = 0; i < 4; i++) { xFx[i] = x; x += wFx[i] + gFx; } }
+    {   // TAPE DELAY: Wow = depth of the delay-time LFO (pitch wobble), Speed = its rate
+        int x0 = xFx[0], ty = kRowA; tile("Tape delay", x0, ty, wFx[0], true);
+        const int cy = ty + 68;
+        knob(kDelayTime,     x0 + 26,  cy, "Time",  1.75f);
+        knob(kDelayFeedback, x0 + 66,  cy, "Fdbk",  1.75f);
+        knob(kDelayMix,      x0 + 106, cy, "Mix",   1.75f);
+        knob(kDelayTone,     x0 + 146, cy, "Tone",  1.75f);
+        knob(kDelayWow,      x0 + 186, cy, "Wow",   1.75f);
+        knob(kDelayWowRate,  x0 + 226, cy, "Speed", 1.75f);
+    }
+    {   // DIGITAL DELAY: clean stereo echo (Stereo / Ping-pong / Dotted)
+        int x0 = xFx[1], ty = kRowA; tile("Digital delay", x0, ty, wFx[1], true);
+        const int cy = ty + 68;
+        knob(kDDelayTime,     x0 + 26,  cy, "Time",    1.75f);
+        knob(kDDelayFeedback, x0 + 66,  cy, "Fdbk",    1.75f);
+        knob(kDDelayMix,      x0 + 106, cy, "Mix",     1.75f);
+        knob(kDDelayTone,     x0 + 146, cy, "Tone",    1.75f);
+        knob(kDDelayLowCut,   x0 + 186, cy, "Low cut", 1.75f);
+        mDDModeBtn = add(new KR106TouchChoice("Mode",
+            [this]() { return juce::String(kr106::DigitalDelay::kModeNames[kr106::DigitalDelay::ModeFromValue(
+                          mProcessor.getParam(kDDelayMode)->getValue())]); },
+            [this]() {
+                int m = kr106::DigitalDelay::ModeFromValue(mProcessor.getParam(kDDelayMode)->getValue());
+                mProcessor.getParam(kDDelayMode)->setValueNotifyingHost(
+                    kr106::DigitalDelay::ValueFromMode((m + 1) % kr106::DigitalDelay::kNumModes));
+                mDDModeBtn->refresh(); }),
+            x0 + 204, cy - 18, 44, 36);
+    }
+    {   // MASTER LIMITER
+        int x0 = xFx[2], ty = kRowA; tile("Limiter", x0, ty, wFx[2], true);
+        mLimOnBtn = add(new KR106TouchToggle("On", param(kLimOn)), x0 + wFx[2] - 46, ty + 2, 42, 16);
+        mLearnableParams.push_back(kLimOn);
+        mLearnableControls.push_back({ kLimOn, mLimOnBtn });
+        const int cy = ty + 62;
+        knob(kLimCeil, x0 + 30, cy, "Ceiling", 1.55f);
+        knob(kLimRel,  x0 + 80, cy, "Release", 1.55f);
+        add(new KR106TouchMeter("GR",
+            [this]() { return juce::jlimit(0.f, 1.f, -mProcessor.mDSP.mLimiter.GetGainReductionDb() / 12.f); },
+            juce::Colour(0xffff9a2a)), x0 + 8, ty + 122, wFx[2] - 16, 22);
+    }
+    {   // WAV RECORDER (records the final master output)
+        int x0 = xFx[3], ty = kRowA; tile("WAV recorder", x0, ty, wFx[3], true);
+        add(new KR106TouchRecorder(), x0 + 8, ty + 30, wFx[3] - 16, 72);
+        add(new KR106TouchTextButton("Share last", []() { if (auto f = kr106touch::hostRecorder().shareLast) f(); }),
+            x0 + 8, ty + 112, 98, 32);
+        add(new KR106TouchTextButton("Save as...", []() { if (auto f = kr106touch::hostRecorder().saveLastAs) f(); }),
+            x0 + 112, ty + 112, 98, 32);
+    }
+    {   // CLOUDS: granular texture with Freeze
+        int x0 = 8, ty = kRowB; tile("Clouds", x0, ty, 854, true);
+        mFreezeBtn = add(new KR106TouchToggle("Freeze", param(kCldFreeze)), x0 + 854 - 84, ty + 2, 76, 16);
+        mLearnableParams.push_back(kCldFreeze);
+        mLearnableControls.push_back({ kCldFreeze, mFreezeBtn });
+        const int cy = ty + 70;
+        const char* names[9] = { "Position", "Size", "Pitch", "Density", "Texture", "Spread", "Feedback", "Reverb", "Mix" };
+        const int ids[9] = { kCldPos, kCldSize, kCldPitch, kCldDens, kCldTex, kCldSpread, kCldFb, kCldRev, kCldMix };
+        for (int i = 0; i < 9; i++)
+            knob(ids[i], x0 + 34 + i * 54, cy, names[i], 1.75f);
+        add(new KR106CloudsView(&mProcessor), x0 + 530, ty + 28, 314, 118);
+    }
+    const int lastFxChild = mContent.getNumChildComponents();
+    for (int i = firstFxChild; i < lastFxChild; i++) mPageCtrls[1].push_back(mContent.getChildComponent(i));
+    curPage = 0;
+    setPage(0);
 
     // Hidden desktop keyboard object: the editor's timer / QWERTY code updates it.
     // The touch UI uses the on-screen keys sheet instead (Keys button).
@@ -1161,6 +1257,7 @@ void KR106Editor::paintTouchBackground(juce::Graphics& g)
     const juce::Colour red(0xff9a0e0e), blue(0xff14388f);
     for (auto& t : mTouchSections)
     {
+        if (t.page != mPage) continue;
         g.setColour(juce::Colour(0xff383838));
         g.fillRoundedRectangle(t.r.toFloat(), 4.f);
         g.setColour(t.blue ? blue : red);                   // header bar (top corners rounded)
@@ -1177,18 +1274,45 @@ void KR106Editor::paintTouchBackground(juce::Graphics& g)
     g.setColour(juce::Colours::white);
     g.setFont(juce::FontOptions(11.f));
     for (auto& l : mTouchLabels)
-        if (l.group == 0 || l.group == mDelayTab)
+        if (l.page < 0 || l.page == mPage)
             g.drawText(l.text, juce::Rectangle<float>(l.cx - 34.f, (float) l.y - 12.f, 68.f, 14.f),
                    juce::Justification::centred);
 }
 
-void KR106Editor::setDelayTab(int tab)
+void KR106Editor::setPage(int page)
 {
-    mDelayTab = tab;
-    for (int g = 0; g < 2; g++)
-        for (auto* c : mDelayTabCtrls[g]) c->setVisible(g + 1 == tab);
-    if (mDelayTabs) mDelayTabs->setSelected(tab - 1);
+    mPage = juce::jlimit(0, 1, page);
+    for (auto* c : mPageCtrls[1]) c->setVisible(mPage == 1);
+    // page 0 controls = everything that is not in page 1 and not part of the top bar/hidden items:
+    // they are tracked by exclusion, so only toggle those recorded for page 1 and the page-0 set below
+    for (auto* c : mPageCtrls[0]) c->setVisible(mPage == 0);
+    if (mPageTabs) mPageTabs->setSelected(mPage);
     repaint();
+}
+
+void KR106Editor::showArpMaskMenu(juce::Rectangle<int> anchor)
+{
+    if (mChoiceMenu) return;
+    const int mask = kr106::autoMaskFromValue(mProcessor.getParam(kArpAutoMask)->getValue());
+    std::vector<KR106MenuItem> items;
+    for (int i = 0; i < kr106::kNumArpPatterns; i++)
+        items.push_back(KR106MenuItem::item(i + 1, kr106::kPatternNames[i], true, (mask & (1 << i)) != 0));
+    mChoiceMenu = std::make_unique<KR106MenuSheet>(std::move(items), mMenuTypeface,
+        [this](int id)
+        {
+            if (id == 0) { mChoiceMenu.reset(); if (mArpMaskBtn) mArpMaskBtn->refresh(); return; }   // dismissed
+            // toggle one pattern in the automation set; the menu stays open for more taps
+            int m = kr106::autoMaskFromValue(mProcessor.getParam(kArpAutoMask)->getValue());
+            m ^= (1 << (id - 1));
+            if (m == 0) m = 1 << (id - 1);                              // never leave the set empty
+            mProcessor.getParam(kArpAutoMask)->setValueNotifyingHost(kr106::valueFromAutoMask(m));
+            if (mArpMaskBtn) mArpMaskBtn->refresh();
+        });
+    int menuW = mChoiceMenu->calcWidth(), menuH = mChoiceMenu->calcHeight();
+    int menuX = juce::jlimit(0, juce::jmax(0, kBaseWidth - menuW), anchor.getX() + anchor.getWidth() - menuW);
+    int menuY = juce::jlimit(0, juce::jmax(0, kBaseHeight - menuH), anchor.getY() - menuH + anchor.getHeight());
+    mContent.addAndMakeVisible(mChoiceMenu.get());
+    mChoiceMenu->showAt({ menuX, menuY, menuW, menuH });
 }
 
 void KR106Editor::showKeysSheet()

@@ -74,6 +74,25 @@ inline std::function<void()>& audioMidiHook()
   return f;
 }
 
+// The Android host (android/Main.cpp) fills this in so the FX page can drive the WAV
+// recorder. Functions are empty on desktop builds without a host -> the recorder tile
+// shows "not available".
+struct HostRecorder
+{
+  std::function<void()> toggle;                 // start / stop a take
+  std::function<bool()> isRecording;
+  std::function<double()> seconds;              // length of the current take
+  std::function<float()> level;                 // 0..1 recent peak of the recorded signal
+  std::function<juce::String()> lastName;       // file name of the last take ("" if none)
+  std::function<void()> shareLast;              // Android share sheet
+  std::function<void()> saveLastAs;             // "save as..." document picker
+};
+inline HostRecorder& hostRecorder()
+{
+  static HostRecorder r;
+  return r;
+}
+
 // Pan / pinch-zoom listener. Attach to the editor with addMouseListener(&pz, true).
 // Only gestures that START on "background" (no control underneath) are used, so
 // moving faders/knobs with other fingers is never affected:

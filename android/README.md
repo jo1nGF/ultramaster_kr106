@@ -28,6 +28,51 @@ O APK é assinado com a chave de debug padrão, o que basta para instalar direto
 - **Engrenagem:** abre o menu original de ajustes (vozes, oversampling, sync etc.).
   No S10, comece com 6 vozes e VCF Oversample 2x e suba se a CPU permitir.
 
+## Páginas: Synth e FX
+
+As abas **Synth | FX** na barra superior trocam de página. Synth: LFO, DCO, HPF, VCF, VCA,
+envelope, chorus e arpejador. FX: tape delay, delay digital, limiter, gravador de WAV e Clouds.
+
+## Arpejador: novidades
+
+- **Swing:** atrasa os passos pares (50% a 75%). **Gate:** duração da nota (10% a 100%).
+  **Ratchet:** 1 a 4 repetições por passo. **Chord:** toca todas as notas juntas a cada passo
+  (o Range espalha o acorde pelas oitavas). Swing, gate e ratchet valem para o relógio interno
+  (não para o transporte de um DAW).
+- **Automação dos tipos (Auto pattern):** o padrão muda sozinho a cada N passos
+  (*Change every*: 4 a 64). Modos: Cycle (próximo da lista), Random e Ping-pong (vai e volta).
+  *Patterns used* escolhe quais padrões entram (toque para marcar/desmarcar). Com a automação
+  ligada o botão Pattern mostra o padrão atual com um "> " na frente; ao desligar, volta ao que
+  você escolheu.
+
+## Clouds (granular)
+
+Página FX. Grava a entrada num buffer de 2 s e toca grãos dele: Position (quão atrás), Size
+(20 ms a 1,2 s), Pitch (-24 a +24 semitons), Density (1 a 80 grãos/s), Texture (janela e
+aleatoriedade), Spread (panorama), Feedback, Reverb e Mix. **Freeze** para a gravação e faz os
+grãos tocarem o buffer congelado. O visor mostra os grãos sobre os últimos 2 s. Mix em 0 deixa
+o som idêntico.
+
+## Limiter
+
+Página FX. Limiter com look-ahead (1,5 ms) no fim da cadeia: Ceiling (-12 a 0 dB) e Release
+(20 a 800 ms), medidor GR. Desligado, o som passa intacto.
+
+## Gravador de WAV
+
+Página FX: botão vermelho grava a saída final (depois do limiter) em WAV 24-bit estéreo. Depois:
+**Share last** abre o menu de compartilhar do Android, **Save as...** salva onde você quiser.
+Todas as gravações ficam na lista Options > WAV recordings (Share, Save as, Delete). A gravação
+é fechada corretamente se o app for para segundo plano.
+
+## Exportar e importar estados
+
+Options > State: **Export all states (.zip)** compartilha um .zip com todos os estados (e o
+estado padrão); **Export all > save as...** salva esse .zip onde você escolher; na lista de
+estados, cada um tem **Share** e **Save as...**; **Import state / zip...** traz de volta arquivos
+.kr106state ou .zip (vários de uma vez). Um estado inclui todos os parâmetros (incluindo os de
+LFO, envelope, delays, Clouds, limiter e arpejador) e as notas travadas pelo Hold.
+
 ## Notas travadas (Hold) no estado
 
 Os estados salvos (e o estado padrão) guardam também as notas que o Hold está segurando, com ou

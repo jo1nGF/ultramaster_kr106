@@ -43,7 +43,8 @@ static bool isLivePerformanceParam(int idx)
          idx == kArpQuantize || idx == kLfoQuantize ||
          (idx >= kSettingVoices && idx <= kSettingMidiSysEx) ||
          idx == kSettingOscMode ||
-         (idx >= kDelayTime && idx <= kDDelayMode);  // global FX / arp extras, survive preset changes
+         (idx >= kDelayTime && idx <= kDDelayMode) ||
+         idx >= kArpSwing;                         // global FX / arp extras, survive preset changes
 }
 
 static bool sExcludeMask[kNumParams] = {};
@@ -500,6 +501,49 @@ KR106AudioProcessor::KR106AudioProcessor()
   };
   addSlider(kLfoWave, "LFO Wave", 0.f, 0.f, 1.f, fmtLfoWave);
   addBool(kEnvLoop, "Envelope Loop", false);
+
+  // Arpeggiator feel and pattern automation
+  SFV fmtSwing = [](float v, int) -> juce::String { return juce::String(juce::roundToInt(50.f + 25.f * v)) + "%"; };
+  SFV fmtGate  = [](float v, int) -> juce::String { return juce::String(juce::roundToInt(100.f * (0.1f + 0.9f * v))) + "%"; };
+  SFV fmtRatchet = [](float v, int) -> juce::String { return juce::String(kr106::ratchetFromValue(v)) + "x"; };
+  SFV fmtAutoMode = [](float v, int) -> juce::String { return kr106::kAutoModeNames[kr106::autoModeFromValue(v)]; };
+  SFV fmtAutoEvery = [](float v, int) -> juce::String { return juce::String(kr106::kAutoEverySteps[kr106::autoEveryFromValue(v)]) + " steps"; };
+  SFV fmtAutoMask = [](float v, int) -> juce::String {
+    int m = kr106::autoMaskFromValue(v), n = 0;
+    for (int i = 0; i < kr106::kNumArpPatterns; i++) if (m & (1 << i)) n++;
+    return juce::String(n) + " patterns";
+  };
+  addSlider(kArpSwing,     "Arp Swing",         0.f,    0.f, 1.f, fmtSwing);
+  addSlider(kArpGate,      "Arp Gate",          1.f,    0.f, 1.f, fmtGate);
+  addSlider(kArpRatchet,   "Arp Ratchet",       0.f,    0.f, 1.f, fmtRatchet);
+  addBool(kArpChord,       "Arp Chord",         false);
+  addSlider(kArpAutoMode,  "Arp Auto Mode",     0.f,    0.f, 1.f, fmtAutoMode);
+  addSlider(kArpAutoEvery, "Arp Auto Every",    1.f / 7.f, 0.f, 1.f, fmtAutoEvery);
+  addSlider(kArpAutoMask,  "Arp Auto Patterns", 1.f,    0.f, 1.f, fmtAutoMask);
+
+  // Master limiter
+  SFV fmtLimCeil = [](float v, int) -> juce::String { return juce::String(kr106::Limiter::CeilingDb(v), 1) + " dB"; };
+  SFV fmtLimRel  = [](float v, int) -> juce::String { return juce::String(juce::roundToInt(kr106::Limiter::ReleaseMs(v))) + " ms"; };
+  addBool(kLimOn, "Limiter On", false);
+  addSlider(kLimCeil, "Limiter Ceiling", 0.97f, 0.f, 1.f, fmtLimCeil);
+  addSlider(kLimRel,  "Limiter Release", 0.3f,  0.f, 1.f, fmtLimRel);
+
+  // Clouds (granular)
+  SFV fmtCldPos  = [](float v, int) -> juce::String { return juce::String(juce::roundToInt(v * 2000.f)) + " ms back"; };
+  SFV fmtCldSize = [](float v, int) -> juce::String { return juce::String(juce::roundToInt(20.f + 1200.f * v * v)) + " ms"; };
+  SFV fmtCldPitch = [](float v, int) -> juce::String {
+    float st = (v - 0.5f) * 48.f; return (st >= 0 ? "+" : "") + juce::String(st, 1) + " st"; };
+  SFV fmtCldDens = [](float v, int) -> juce::String { return juce::String(1.f + 79.f * v * v, 1) + " /s"; };
+  addSlider(kCldPos,    "Clouds Position", 0.35f, 0.f, 1.f, fmtCldPos);
+  addSlider(kCldSize,   "Clouds Size",     0.45f, 0.f, 1.f, fmtCldSize);
+  addSlider(kCldPitch,  "Clouds Pitch",    0.5f,  0.f, 1.f, fmtCldPitch);
+  addSlider(kCldDens,   "Clouds Density",  0.5f,  0.f, 1.f, fmtCldDens);
+  addSlider(kCldTex,    "Clouds Texture",  0.3f,  0.f, 1.f, fmtPct, parsePct);
+  addSlider(kCldSpread, "Clouds Spread",   0.5f,  0.f, 1.f, fmtPct, parsePct);
+  addSlider(kCldFb,     "Clouds Feedback", 0.f,   0.f, 1.f, fmtPct, parsePct);
+  addSlider(kCldRev,    "Clouds Reverb",   0.25f, 0.f, 1.f, fmtPct, parsePct);
+  addSlider(kCldMix,    "Clouds Mix",      0.f,   0.f, 1.f, fmtPct, parsePct);
+  addBool(kCldFreeze,   "Clouds Freeze",   false);
 
   // Build factory presets from compiled-in data (raw 7-bit integer values)
   constexpr int kFactoryValues = sizeof(KR106FactoryPreset::values) / sizeof(int);
@@ -1478,6 +1522,21 @@ void KR106AudioProcessor::setStateInformation(const void* data, int sizeInBytes)
   juce::MemoryInputStream stream(data, static_cast<size_t>(sizeInBytes), false);
   int numParams = stream.readInt();
   if (numParams > kNumParams) numParams = kNumParams;
+
+  // Switching the model (60 <-> 106) converts VCF Freq and HPF to keep the sound. The saved
+  // values are already in the *saved* model's scale, so tell the processor the model matches
+  // before the parameters are applied; otherwise loading a state whose model differs from the
+  // current one would convert them a second time and change the cutoff.
+  if (numParams > kAdsrMode && mParams[kAdsrMode] != nullptr)
+  {
+    juce::MemoryInputStream pre(data, static_cast<size_t>(sizeInBytes), false);
+    pre.readInt();
+    for (int i = 0; i <= kAdsrMode; i++)
+    {
+      float v = pre.readFloat();
+      if (i == kAdsrMode) mWasJ106Mode = mParams[i]->convertTo0to1(v) > 0.5f;
+    }
+  }
 
   for (int i = 0; i < numParams; i++)
   {

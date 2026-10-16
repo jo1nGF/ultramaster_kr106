@@ -15,13 +15,80 @@
 #include "PluginProcessor.h"
 #include "KR106Touch.h"
 #include "KR106TouchKeys.h"
+#include "KR106Recorder.h"
+#include "KR106StateIO.h"
 
 // ---------------------------------------------------------------------------
 // State files. A "state" is the complete plug-in state (every parameter incl.
 // delay, arpeggiator extras and global settings) - more than a preset keeps.
 static juce::File statesDir()
 {
-  return KR106PresetManager::getAppDataDir().getChildFile("States");
+  return kr106state::dir(KR106PresetManager::getAppDataDir());
+}
+static juce::File recordingsDir()
+{
+  return KR106PresetManager::getAppDataDir().getChildFile("Recordings");
+}
+static juce::File exportDir()
+{
+  return KR106PresetManager::getAppDataDir().getChildFile("Export");
+}
+
+// ---- sharing / saving a file outside the app's private folder -------------------------
+// Share: the Android share sheet (Drive, e-mail, messengers, ...).
+static void shareFile(const juce::File& f, std::function<void(const juce::String&)> done)
+{
+#if JUCE_CONTENT_SHARING      // Android (enabled in KR106Touch.jucer) - not available on desktop builds
+  juce::Array<juce::URL> urls;
+  urls.add(juce::URL(f));
+  static juce::ScopedMessageBox sharing;      // must stay alive while the share sheet is open
+  sharing = juce::ContentSharer::shareFilesScoped(urls, [done](bool ok, const juce::String& err)
+  {
+    if (done) done(ok ? juce::String() : (err.isEmpty() ? juce::String("Sharing is not available here.") : err));
+  });
+#else
+  if (done) done("Sharing is only available in the Android app. File: " + f.getFullPathName());
+#endif
+}
+// Save as: the system document picker (any folder, Drive, USB ...).
+static void saveFileAs(const juce::File& src, const juce::String& suggestedName, const juce::String& wildcard,
+                       std::function<void(const juce::String&)> done)
+{
+  auto chooser = std::make_shared<juce::FileChooser>(
+    "Save as", juce::File::getSpecialLocation(juce::File::userDocumentsDirectory).getChildFile(suggestedName), wildcard);
+  chooser->launchAsync(juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::canSelectFiles
+                         | juce::FileBrowserComponent::warnAboutOverwriting,
+    [chooser, src, done](const juce::FileChooser& fc)
+    {
+      auto url = fc.getURLResult();
+      if (url.isEmpty()) return;                                   // cancelled
+      std::unique_ptr<juce::InputStream> in(src.createInputStream());
+      std::unique_ptr<juce::OutputStream> out(url.createOutputStream());
+      const bool ok = in != nullptr && out != nullptr && out->writeFromInputStream(*in, -1) > 0;
+      if (out) out->flush();
+      if (done) done(ok ? "Saved: " + url.getFileName() : juce::String("Could not save the file."));
+    });
+}
+// Import: pick one or more state files / zips and hand each one's bytes over.
+static void pickImport(std::function<void(const juce::String& name, const juce::MemoryBlock&)> each,
+                       std::function<void()> finished)
+{
+  auto chooser = std::make_shared<juce::FileChooser>("Import state or zip", juce::File(), "*.kr106state;*.zip");
+  chooser->launchAsync(juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles
+                         | juce::FileBrowserComponent::canSelectMultipleItems,
+    [chooser, each, finished](const juce::FileChooser& fc)
+    {
+      for (auto& url : fc.getURLResults())
+      {
+        std::unique_ptr<juce::InputStream> in(url.createInputStream(
+          juce::URL::InputStreamOptions(juce::URL::ParameterHandling::inAddress)));
+        if (in == nullptr) continue;
+        juce::MemoryBlock mb;
+        in->readIntoMemoryBlock(mb);
+        if (each) each(url.getFileName(), mb);
+      }
+      if (finished) finished();
+    });
 }
 static juce::File defaultStateFile()
 {
@@ -99,7 +166,7 @@ public:
     g.fillRect(0, 54, getWidth(), 2);
     g.setColour(juce::Colours::white);
     g.setFont(juce::FontOptions(22.f));
-    g.drawText(listMode ? "Saved states" : "Options", 16, 8, getWidth() - 160, 40, juce::Justification::centredLeft);
+    g.drawText(listMode == 1 ? "Saved states" : listMode == 2 ? "Recordings" : "Options", 16, 8, getWidth() - 160, 40, juce::Justification::centredLeft);
   }
 
   void resized() override
@@ -183,15 +250,20 @@ private:
     content.removeAllChildren();
     labels.clear(); buttons.clear(); items.clear();
     statusLabel = nullptr; midiLabel = nullptr;
-    if (listMode) { buildStateList(); layoutContent(); return; }
+    if (listMode == 1) { buildStateList(); layoutContent(); return; }
+    if (listMode == 2) { buildRecordingList(); layoutContent(); return; }
 
     // ---- State ----
     section("State  (whole plug-in setup: patch, delay, arpeggiator, global settings)");
     items.push_back({ addButton("Save current state...", false, [this] { askStateName(); }), 230, 44 });
-    items.push_back({ addButton("Load a saved state...", false, [this] { listMode = true; afterChange(); }), 230, 44 });
+    items.push_back({ addButton("Load a saved state...", false, [this] { listMode = 1; afterChange(); }), 230, 44 });
     items.push_back({ addButton("Reset to default state", false, [this] { resetToDefault(); }), 230, 44 });
     items.push_back({ addButton("Save as default state", false, [this] { saveAsDefault(); }), 230, 44 });
     items.push_back({ addButton("Remove default state", false, [this] { removeDefault(); }), 230, 44 });
+    items.push_back({ addButton("Export all states (.zip)", false, [this] { exportAll(false); }), 230, 44 });
+    items.push_back({ addButton("Export all > save as...", false, [this] { exportAll(true); }), 230, 44 });
+    items.push_back({ addButton("Import state / zip...", false, [this] { importStates(); }), 230, 44 });
+    items.push_back({ addButton("WAV recordings...", false, [this] { listMode = 2; afterChange(); }), 230, 44 });
     auto* msg = addLabel(stateMessage.isEmpty() ? defaultStateText() : stateMessage + "\n" + defaultStateText(),
                          13.f, juce::Colour(0xffbdbdbd));
     items.push_back({ msg, -1, 40 });
@@ -309,7 +381,8 @@ private:
 
   void buildStateList()
   {
-    section("Tap a state to load it");
+    section("Tap a state to load it  -  Share / Save as export that one state");
+    if (stateMessage.isNotEmpty()) note(stateMessage, 22);
     auto files = statesDir().findChildFiles(juce::File::findFiles, false, "*.kr106state");
     files.sort();
     if (files.isEmpty())
@@ -317,14 +390,87 @@ private:
     for (auto& f : files)
     {
       auto label = f.getFileNameWithoutExtension() + "    " + f.getLastModificationTime().formatted("%d/%m %H:%M");
-      items.push_back({ addButton(label, false, [this, f] { loadStateFile(f); }), 460, 44 });
+      items.push_back({ addButton(label, false, [this, f] { loadStateFile(f); }), 300, 44 });
+      items.push_back({ addButton("Share", false, [this, f] { shareFile(f, [this](const juce::String& e) { setMessage(e.isEmpty() ? juce::String("Shared.") : e); }); }), 84, 44 });
+      items.push_back({ addButton("Save as...", false, [this, f] { saveFileAs(f, f.getFileName(), "*.kr106state", [this](const juce::String& m) { setMessage(m); }); }), 110, 44 });
       const bool pending = (pendingDelete == f.getFullPathName());
       items.push_back({ addButton(pending ? "Confirm delete" : "Delete", pending, [this, f] {
                           if (pendingDelete == f.getFullPathName()) { f.deleteFile(); pendingDelete.clear(); }
                           else pendingDelete = f.getFullPathName();
-                          afterChange(); }), 150, 44 });
+                          afterChange(); }), 130, 44 });
     }
-    items.push_back({ addButton("Back", false, [this] { listMode = false; pendingDelete.clear(); afterChange(); }), 150, 44 });
+    items.push_back({ addButton("Back", false, [this] { listMode = 0; pendingDelete.clear(); afterChange(); }), 130, 44 });
+    items.push_back({ addButton("Import...", false, [this] { importStates(); }), 130, 44 });
+  }
+
+  void buildRecordingList()
+  {
+    section("WAV recordings (24-bit stereo, what the speakers got)");
+    if (stateMessage.isNotEmpty()) note(stateMessage, 22);
+    auto files = recordingsDir().findChildFiles(juce::File::findFiles, false, "*.wav");
+    files.sort();
+    if (files.isEmpty())
+      note("No recordings yet. Use the red button on the FX page.", 24);
+    for (int i = files.size(); --i >= 0;)                           // newest first
+    {
+      auto f = files[i];
+      auto label = f.getFileNameWithoutExtension().replace("KR106_", "") + "   " + juce::String(f.getSize() / 1048576.0, 1) + " MB";
+      items.push_back({ addLabelBox(label), 300, 44 });
+      items.push_back({ addButton("Share", false, [this, f] { shareFile(f, [this](const juce::String& e) { setMessage(e.isEmpty() ? juce::String("Shared.") : e); }); }), 84, 44 });
+      items.push_back({ addButton("Save as...", false, [this, f] { saveFileAs(f, f.getFileName(), "*.wav", [this](const juce::String& m) { setMessage(m); }); }), 110, 44 });
+      const bool pending = (pendingDelete == f.getFullPathName());
+      items.push_back({ addButton(pending ? "Confirm delete" : "Delete", pending, [this, f] {
+                          if (pendingDelete == f.getFullPathName()) { f.deleteFile(); pendingDelete.clear(); }
+                          else pendingDelete = f.getFullPathName();
+                          afterChange(); }), 130, 44 });
+    }
+    items.push_back({ addButton("Back", false, [this] { listMode = 0; pendingDelete.clear(); afterChange(); }), 130, 44 });
+  }
+
+  juce::Component* addLabelBox(const juce::String& text)
+  {
+    auto* b = new Btn(text, [] {}, juce::Colour(0xff1d1d1d));
+    buttons.add(b);
+    content.addAndMakeVisible(b);
+    return b;
+  }
+
+  void setMessage(const juce::String& m)
+  {
+    stateMessage = m;
+    juce::MessageManager::callAsync([safe = juce::Component::SafePointer<KR106OptionsPanel>(this)] {
+      if (safe) safe->rebuild(); });
+  }
+
+  // All saved states (+ the default one) in a single .zip: share it, or save it anywhere
+  void exportAll(bool saveAs)
+  {
+    exportDir().createDirectory();
+    auto zip = exportDir().getChildFile("KR106_states_" + juce::Time::getCurrentTime().formatted("%Y-%m-%d_%H-%M") + ".zip");
+    if (!kr106state::buildExportZip(statesDir(), defaultStateFile(), zip))
+    {
+      setMessage("Nothing to export yet: save a state first.");
+      return;
+    }
+    if (saveAs) saveFileAs(zip, zip.getFileName(), "*.zip", [this](const juce::String& m) { setMessage(m); });
+    else        shareFile(zip, [this](const juce::String& e) { setMessage(e.isEmpty() ? juce::String("Exported all states.") : e); });
+  }
+
+  // Bring state files (or a zip made by "Export all") back in as saved states
+  void importStates()
+  {
+    auto count = std::make_shared<int>(0);
+    auto bad = std::make_shared<int>(0);
+    pickImport([count, bad](const juce::String& name, const juce::MemoryBlock& mb)
+               {
+                 int n = kr106state::importData(statesDir(), name, mb);
+                 if (n > 0) *count += n; else (*bad)++;
+               },
+               [this, count, bad]
+               {
+                 setMessage("Imported " + juce::String(*count) + " state(s)"
+                            + (*bad > 0 ? ",  " + juce::String(*bad) + " file(s) were not valid states." : juce::String(".")));
+               });
   }
 
   void loadStateFile(const juce::File& f)
@@ -336,7 +482,7 @@ private:
       stateMessage = "Loaded state: " + f.getFileNameWithoutExtension();
     }
     else stateMessage = "Could not read " + f.getFileName();
-    listMode = false; pendingDelete.clear();
+    listMode = 0; pendingDelete.clear();
     afterChange();
   }
 
@@ -446,7 +592,7 @@ private:
   std::set<juce::String>& known;
   std::function<void()> save, panic, close;
   KR106StateOps ops;
-  bool listMode = false;
+  int listMode = 0;                       // 0 = Options, 1 = saved states, 2 = recordings
   juce::String stateMessage, pendingDelete;
 
   juce::Viewport viewport;
@@ -458,6 +604,34 @@ private:
   juce::Label* midiLabel = nullptr;
   juce::String lastStatus, lastMidi;
   int lastCount = -1;
+};
+
+// ---------------------------------------------------------------------------
+// Sits between the audio device and the player: the player produces the sound, then the
+// recorder copies the finished master output (after the limiter).
+class KR106AudioTap : public juce::AudioIODeviceCallback
+{
+public:
+  KR106AudioTap(juce::AudioProcessorPlayer& p, KR106Recorder& r) : player(p), rec(r) {}
+
+  void audioDeviceIOCallbackWithContext(const float* const* in, int nIn, float* const* out, int nOut, int n,
+                                        const juce::AudioIODeviceCallbackContext& ctx) override
+  {
+    player.audioDeviceIOCallbackWithContext(in, nIn, out, nOut, n, ctx);
+    rec.write(out, nOut, n);
+  }
+  void audioDeviceAboutToStart(juce::AudioIODevice* d) override
+  {
+    rec.stop();                                   // a device restart (buffer / rate change) ends the take
+    rec.setSampleRate(d->getCurrentSampleRate());
+    player.audioDeviceAboutToStart(d);
+  }
+  void audioDeviceStopped() override { player.audioDeviceStopped(); }
+  void audioDeviceError(const juce::String& e) override { player.audioDeviceError(e); }
+
+private:
+  juce::AudioProcessorPlayer& player;
+  KR106Recorder& rec;
 };
 
 // ---------------------------------------------------------------------------
@@ -475,8 +649,20 @@ public:
 
     player.setProcessor(processor.get());
     forwarder = std::make_unique<KR106MidiForwarder>(player);
-    deviceManager.addAudioCallback(&player);
+    deviceManager.addAudioCallback(&tap);
     deviceManager.addMidiInputDeviceCallback({}, forwarder.get());   // all enabled MIDI inputs
+
+    // WAV recorder hooks for the FX page
+    {
+      auto& hr = kr106touch::hostRecorder();
+      hr.toggle      = [this] { toggleRecording(); };
+      hr.isRecording = [this] { return recorder.isRecording(); };
+      hr.seconds     = [this] { return recorder.seconds(); };
+      hr.level       = [this] { return recorder.takePeak(); };
+      hr.lastName    = [this] { return lastTake.getFileName(); };
+      hr.shareLast   = [this] { if (lastTake.existsAsFile()) shareFile(lastTake, [](const juce::String&) {}); };
+      hr.saveLastAs  = [this] { if (lastTake.existsAsFile()) saveFileAs(lastTake, lastTake.getFileName(), "*.wav", [](const juce::String&) {}); };
+    }
 
     editor.reset(processor->createEditor());
     addAndMakeVisible(*editor);
@@ -490,12 +676,14 @@ public:
   ~KR106Root() override
   {
     kr106touch::audioMidiHook() = nullptr;
+    kr106touch::hostRecorder() = kr106touch::HostRecorder();
+    recorder.stop();
     stopTimer();
     panel.reset();
     saveState();
     saveAudioSettings();
     deviceManager.removeMidiInputDeviceCallback({}, forwarder.get());
-    deviceManager.removeAudioCallback(&player);
+    deviceManager.removeAudioCallback(&tap);
     player.setProcessor(nullptr);
     editor.reset();
   }
@@ -528,6 +716,7 @@ public:
 
   void saveState()
   {
+    if (recorder.isRecording()) recorder.stop();       // closes the WAV properly before Android may kill us
     juce::MemoryBlock mb;
     processor->getStateInformation(mb);
     auto f = stateFile();
@@ -567,7 +756,7 @@ private:
   // because those are remembered on disk between runs.
   void factoryReset()
   {
-    deviceManager.removeAudioCallback(&player);
+    deviceManager.removeAudioCallback(&tap);
     player.setProcessor(nullptr);
     editor.reset();
     processor = std::make_unique<KR106AudioProcessor>();
@@ -575,7 +764,7 @@ private:
       if (auto* prm = processor->getParam(i)) prm->setValueNotifyingHost(prm->getDefaultValue());
     processor->saveGlobalSettings();
     player.setProcessor(processor.get());
-    deviceManager.addAudioCallback(&player);
+    deviceManager.addAudioCallback(&tap);
     editor.reset(processor->createEditor());
     addAndMakeVisible(*editor);
     editor->toBack();
@@ -614,6 +803,18 @@ private:
   }
   void timerCallback() override { scanMidi(); }
 
+  void toggleRecording()
+  {
+    if (recorder.isRecording())
+    {
+      recorder.stop();
+      lastTake = recorder.file();
+      return;
+    }
+    auto f = recordingsDir().getChildFile("KR106_" + juce::Time::getCurrentTime().formatted("%Y-%m-%d_%H-%M-%S") + ".wav");
+    if (recorder.start(f)) lastTake = f;
+  }
+
   void showAudioMidi()
   {
     if (panel) return;
@@ -640,6 +841,9 @@ private:
 
   juce::AudioDeviceManager deviceManager;
   juce::AudioProcessorPlayer player;
+  KR106Recorder recorder;
+  KR106AudioTap tap { player, recorder };
+  juce::File lastTake;
   std::unique_ptr<KR106MidiForwarder> forwarder;
   std::set<juce::String> disabledMidi, known;
   std::unique_ptr<KR106AudioProcessor> processor;

@@ -109,6 +109,32 @@ static inline int shLoopFromValue(float v)
 { return std::max(0, std::min(kNumShLoops - 1, static_cast<int>(std::round(v * (kNumShLoops - 1))))); }
 static inline float valueFromShLoop(int i) { return static_cast<float>(i) / (kNumShLoops - 1); }
 
+// ---------------------------------------------------------------------------
+// Pattern automation ("auto"): the pattern changes by itself every N steps.
+//   Off / Cycle (next enabled pattern) / Random / Ping-pong (forth and back)
+// ---------------------------------------------------------------------------
+static constexpr int kNumAutoModes = 4;
+static constexpr const char* kAutoModeNames[kNumAutoModes] = { "Off", "Cycle", "Random", "Ping-pong" };
+static constexpr int kNumAutoEvery = 8;
+static constexpr int kAutoEverySteps[kNumAutoEvery] = { 4, 8, 12, 16, 24, 32, 48, 64 };
+static inline int autoModeFromValue(float v)
+{ return std::max(0, std::min(kNumAutoModes - 1, static_cast<int>(std::round(v * (kNumAutoModes - 1))))); }
+static inline float valueFromAutoMode(int i) { return static_cast<float>(i) / (kNumAutoModes - 1); }
+static inline int autoEveryFromValue(float v)
+{ return std::max(0, std::min(kNumAutoEvery - 1, static_cast<int>(std::round(v * (kNumAutoEvery - 1))))); }
+static inline float valueFromAutoEvery(int i) { return static_cast<float>(i) / (kNumAutoEvery - 1); }
+// Which patterns take part in the automation: a bit mask over ArpPattern (9 bits),
+// stored in the parameter as mask / 511.
+static constexpr int kAutoMaskAll = (1 << kNumArpPatterns) - 1;
+static inline int autoMaskFromValue(float v)
+{ return std::max(0, std::min(kAutoMaskAll, static_cast<int>(std::round(v * static_cast<float>(kAutoMaskAll))))); }
+static inline float valueFromAutoMask(int m) { return static_cast<float>(m) / static_cast<float>(kAutoMaskAll); }
+
+// Ratchet: 1..4 hits per step. Value 0..1 <-> 1..4.
+static inline int ratchetFromValue(float v)
+{ return 1 + std::max(0, std::min(3, static_cast<int>(std::round(v * 3.f)))); }
+static inline float valueFromRatchet(int hits) { return static_cast<float>(hits - 1) / 3.f; }
+
 struct Arpeggiator
 {
   bool mEnabled = false;
@@ -173,6 +199,63 @@ struct Arpeggiator
   int mShPos = 0;
   int mWalkPos = 0;
   int mCounter = 0;                 // step counter for the patterned modes
+
+  // ---- timing / feel extensions ----
+  float mSwing = 0.f;               // 0 = straight, 1 = hard swing (odd steps pushed back)
+  float mGate = 1.f;                // note length as a fraction of the step (1 = legato, original)
+  int   mRatchet = 1;               // hits per step (1..4)
+  bool  mChord = false;             // play all held notes together on every step
+  std::vector<int> mChordNotes;     // extra notes sounding with mLastNote in chord mode
+  int   mStepParity = 0;            // alternates every step (swing)
+  int   mRatchetK = 0;              // sub-hit already played in the current step
+  bool  mSounding = false;          // arp note(s) currently on
+
+  // ---- pattern automation ----
+  int   mBasePattern = 0;           // the pattern the player chose
+  int   mAutoMode = 0;              // 0 off, 1 cycle, 2 random, 3 ping-pong
+  int   mAutoEvery = 8;             // steps between changes
+  int   mAutoMask = kAutoMaskAll;   // patterns included
+  int   mAutoCount = 0;
+  int   mAutoDir = 1;
+  std::atomic<int> mShownPattern{0};   // effective pattern, for the UI
+
+  void SetBasePattern(int p)
+  {
+    mBasePattern = mPattern = std::max(0, std::min(kNumArpPatterns - 1, p));
+    mAutoCount = 0; mAutoDir = 1; mCounter = 0; mWalkPos = 0;
+    mShownPattern.store(mPattern, std::memory_order_relaxed);
+  }
+  void SetAutoMode(int m)
+  {
+    m = std::max(0, std::min(kNumAutoModes - 1, m));
+    if (m == mAutoMode) return;
+    mAutoMode = m; mAutoCount = 0; mAutoDir = 1;
+    if (m == 0) { mPattern = mBasePattern; mCounter = 0; mShownPattern.store(mPattern, std::memory_order_relaxed); }
+  }
+  // Called once per step while automation is on
+  void AutoStep()
+  {
+    if (mAutoMode == 0) return;
+    if (++mAutoCount < mAutoEvery) return;
+    mAutoCount = 0;
+    int list[kNumArpPatterns], n = 0;
+    int mask = mAutoMask ? mAutoMask : kAutoMaskAll;
+    for (int i = 0; i < kNumArpPatterns; i++) if (mask & (1 << i)) list[n++] = i;
+    if (n < 2) return;
+    int cur = 0;
+    for (int i = 0; i < n; i++) if (list[i] == mPattern) cur = i;
+    int next = cur;
+    if (mAutoMode == 1) next = (cur + 1) % n;                                   // cycle
+    else if (mAutoMode == 2) { do { next = std::min(n - 1, static_cast<int>(Rand() * n)); } while (next == cur); }  // random
+    else                                                                        // ping-pong
+    {
+      if (cur + mAutoDir >= n || cur + mAutoDir < 0) mAutoDir = -mAutoDir;
+      next = cur + mAutoDir;
+    }
+    mPattern = list[next];
+    mCounter = 0; mWalkPos = 0;                    // the new pattern starts from its beginning
+    mShownPattern.store(mPattern, std::memory_order_relaxed);
+  }
 
   float Rand()                      // 0..1
   {
@@ -244,8 +327,20 @@ struct Arpeggiator
     }
   }
 
+  // Switch off whatever the arpeggiator is sounding (main note + chord notes)
+  template <typename NoteOffF>
+  void ReleaseSounding(NoteOffF noteOff, int offset)
+  {
+    if (mLastNote >= 0) noteOff(mLastNote, offset);
+    for (int n : mChordNotes) noteOff(n, offset);
+    mChordNotes.clear();
+    mLastNote = -1;
+    mSounding = false;
+  }
+
   void Reset()
   {
+    mChordNotes.clear(); mSounding = false; mRatchetK = 0; mStepParity = 0;
     mHeldNotes.clear();
     mPlayOrder.clear();
     mCounter = 0; mWalkPos = 0; mShPos = 0;
@@ -312,6 +407,19 @@ struct Arpeggiator
     if (mStepIndex >= len) mStepIndex = 0;
     if (mStepIndex < 0) mStepIndex = len - 1;
 
+    mChordNotes.clear();
+    AutoStep();                                   // pattern automation
+    if (mChord)                                   // all notes together; the octave range walks over the steps
+    {
+      const int octs = mRange + 1;
+      const int shift = 12 * (mCounter++ % octs);
+      int first = -1;
+      for (int n : mHeldNotes)
+      {
+        if (first < 0) first = n + shift; else mChordNotes.push_back(n + shift);
+      }
+      return first;
+    }
     if (mPattern != kPatClassic)
       return NextPatternNote(len);
 
@@ -403,15 +511,25 @@ struct Arpeggiator
   {
     if (!mEnabled || mHeldNotes.empty())
     {
-      // Release lingering arp note when disabled or all keys released
-      if (mLastNote >= 0)
-      {
-        noteOff(mLastNote, 0);
-        mLastNote = -1;
-      }
+      // Release lingering arp notes when disabled or all keys released
+      ReleaseSounding(noteOff, 0);
       mLastSyncStep = -1;
       return;
     }
+
+    // Start of a step: release what is sounding, then play the next note(s)
+    auto startStep = [&](int s)
+    {
+      ReleaseSounding(noteOff, s);
+      int note = NextNote();
+      if (note >= 0)
+      {
+        noteOn(note, s);
+        mLastNote = note;
+        for (int n : mChordNotes) noteOn(n, s);
+        mSounding = true;
+      }
+    };
 
     if (mSyncToHost)
     {
@@ -420,7 +538,8 @@ struct Arpeggiator
 
       if (mHostPlaying)
       {
-        // Transport running: lock steps to beat grid
+        // Transport running: lock steps to the beat grid (swing / gate / ratchet apply to
+        // the free-running clock only)
         double beatsPerSample = mHostBPM / (60.0 * static_cast<double>(mSampleRate));
 
         for (int s = 0; s < nFrames; s++)
@@ -432,16 +551,7 @@ struct Arpeggiator
           {
             mLastSyncStep = stepNow;
             mTickCount.fetch_add(1, std::memory_order_relaxed);
-
-            if (mLastNote >= 0)
-              noteOff(mLastNote, s);
-
-            int note = NextNote();
-            if (note >= 0)
-            {
-              noteOn(note, s);
-              mLastNote = note;
-            }
+            startStep(s);
           }
         }
         return;
@@ -458,42 +568,54 @@ struct Arpeggiator
         {
           mPhase -= 1.f;
           mTickCount.fetch_add(1, std::memory_order_relaxed);
-
-          if (mLastNote >= 0)
-            noteOff(mLastNote, s);
-
-          int note = NextNote();
-          if (note >= 0)
-          {
-            noteOn(note, s);
-            mLastNote = note;
-          }
+          startStep(s);
         }
       }
       return;
     }
 
-    // Free-running mode: phase accumulator at mRate steps/minute
-    float inc = mRate / (60.f * mSampleRate);
+    // Free-running mode: phase accumulator at mRate steps/minute.
+    // Swing: steps alternate between a longer and a shorter length (their sum stays
+    // constant), so the odd steps arrive late. ratio 0.5 = straight (the original).
+    const float baseInc = mRate / (60.f * mSampleRate);
+    const float ratio = 0.5f + 0.25f * std::max(0.f, std::min(1.f, mSwing));
+    const float incEven = baseInc * 0.5f / ratio;           // first step of the pair is long
+    const float incOdd  = baseInc * 0.5f / (1.f - ratio);   // second one short
+    const int   hits = std::max(1, std::min(4, mRatchet));
+    const float gate = std::max(0.05f, std::min(1.f, mGate));
 
     for (int s = 0; s < nFrames; s++)
     {
-      mPhase += inc;
+      // parity flips at every step boundary; the interval after an on-beat step is the long one
+      mPhase += (mStepParity == 1) ? incEven : incOdd;
       if (mPhase >= 1.f)
       {
         mPhase -= 1.f;
+        mStepParity ^= 1;
+        mRatchetK = 0;
         mTickCount.fetch_add(1, std::memory_order_relaxed);
-
-        // Release previous arp note
-        if (mLastNote >= 0)
-          noteOff(mLastNote, s);
-
-        // Trigger next arp note
-        int note = NextNote();
-        if (note >= 0)
+        startStep(s);
+      }
+      else if (mLastNote >= 0)
+      {
+        // inside a step: ratchet re-hits and gate (note length)
+        const float sub = mPhase * static_cast<float>(hits);
+        const int k = std::min(hits - 1, static_cast<int>(sub));
+        if (k > mRatchetK)                                   // next ratchet hit: retrigger the same notes
         {
-          noteOn(note, s);
-          mLastNote = note;
+          mRatchetK = k;
+          const int mainNote = mLastNote;
+          const std::vector<int> extras = mChordNotes;
+          ReleaseSounding(noteOff, s);
+          noteOn(mainNote, s);
+          mLastNote = mainNote;
+          mChordNotes = extras;
+          for (int n : mChordNotes) noteOn(n, s);
+          mSounding = true;
+        }
+        else if (gate < 0.999f && (sub - static_cast<float>(k)) >= gate)
+        {
+          ReleaseSounding(noteOff, s);                       // gate closed: the note ends early
         }
       }
     }

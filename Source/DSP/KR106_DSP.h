@@ -18,6 +18,8 @@
 #include "KR106Chorus.h"
 #include "KR106TapeDelay.h"
 #include "KR106DigitalDelay.h"
+#include "KR106Clouds.h"
+#include "KR106Limiter.h"
 #include "KR106_HPF.h"
 #include "KR106AnalogNoise.h"
 #include "KR106Resampler.h"
@@ -701,8 +703,11 @@ public:
       mTapeDelay.Process(L, R, oL, oR);
       float dL, dR;                          // digital delay after the tape delay
       mDigitalDelay.Process(oL, oR, dL, dR);
-      outputs[0][s] = static_cast<T>(dL);
-      if (nOutputs > 1) outputs[1][s] = static_cast<T>(dR);
+      float cL, cR;                          // Clouds, then the master limiter
+      mClouds.Process(dL, dR, cL, cR);
+      mLimiter.Process(cL, cR);
+      outputs[0][s] = static_cast<T>(cL);
+      if (nOutputs > 1) outputs[1][s] = static_cast<T>(cR);
     }
 
     // Master volume after chorus (scales signal + chorus noise together)
@@ -763,6 +768,8 @@ public:
     mTapeDelay.Init(mSampleRate);
     mTapeDelay.Snap();
     mDigitalDelay.Init(mSampleRate);
+    mClouds.Init(mSampleRate);
+    mLimiter.Init(mSampleRate);
     mFloorNoise.Init(mSampleRate);
     mFloorNoise.mPinkEnabled = true;
     mFloorNoise.SetHighShelf(500, -16, mSampleRate);
@@ -862,6 +869,8 @@ public:
   kr106::Chorus mChorus;
   kr106::TapeDelay mTapeDelay;
   kr106::DigitalDelay mDigitalDelay;
+  kr106::Clouds mClouds;
+  kr106::Limiter mLimiter;
   kr106::Arpeggiator mArp;
 
   float mVcaLevel = 1.f;
@@ -1117,7 +1126,7 @@ private:
     // mHeldNotes is empty but arp still has the notes. Clear them too.
     if (mArp.mEnabled && !mArp.mHeldNotes.empty() && mKeysDown.none())
     {
-      if (mArp.mLastNote >= 0) { SendToSynth(mArp.mLastNote, false, 0); mArp.mLastNote = -1; }
+      mArp.ReleaseSounding([this](int n, int off) { SendToSynth(n, false, off); }, 0);
       mArp.mHeldNotes.clear();
     }
     // Safety net: release any voices still sounding that aren't keyed down.

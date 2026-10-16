@@ -187,6 +187,163 @@ private:
 };
 
 // ---------------------------------------------------------------------------
+// Horizontal bar meter (gain reduction / level).  value() returns 0..1.
+class KR106TouchMeter : public juce::Component, private juce::Timer
+{
+public:
+  KR106TouchMeter(const juce::String& caption, std::function<float()> value, juce::Colour col)
+    : mCaption(caption), mValue(std::move(value)), mCol(col) { startTimerHz(25); }
+
+  void paint(juce::Graphics& g) override
+  {
+    auto r = getLocalBounds().toFloat().reduced(0.5f);
+    g.setColour(juce::Colour(0xff0b0b0b));
+    g.fillRoundedRectangle(r, 3.f);
+    const float v = juce::jlimit(0.f, 1.f, mShown);
+    if (v > 0.002f)
+    {
+      g.setColour(mCol);
+      g.fillRoundedRectangle(r.withWidth(std::max(4.f, r.getWidth() * v)), 3.f);
+    }
+    g.setColour(juce::Colour(0xff555555));
+    g.drawRoundedRectangle(r, 3.f, 0.8f);
+    g.setColour(juce::Colours::white.withAlpha(0.85f));
+    g.setFont(juce::FontOptions(10.f));
+    g.drawText(mCaption, getLocalBounds().withTrimmedLeft(4), juce::Justification::centredLeft);
+  }
+
+private:
+  void timerCallback() override
+  {
+    if (!isShowing()) return;
+    const float v = mValue ? mValue() : 0.f;
+    // fast attack, slower fall so short peaks stay visible
+    mShown = v > mShown ? v : mShown + (v - mShown) * 0.25f;
+    repaint();
+  }
+  juce::String mCaption;
+  std::function<float()> mValue;
+  juce::Colour mCol;
+  float mShown = 0.f;
+};
+
+// ---------------------------------------------------------------------------
+// WAV recorder panel: big record button, take time, level meter, last file name.
+// Everything is read from kr106touch::hostRecorder() (set by the Android host).
+class KR106TouchRecorder : public juce::Component, private juce::Timer
+{
+public:
+  KR106TouchRecorder() { startTimerHz(15); }
+
+  void paint(juce::Graphics& g) override
+  {
+    auto& h = kr106touch::hostRecorder();
+    const bool avail = (bool) h.toggle;
+    const bool rec = avail && h.isRecording && h.isRecording();
+    const float R = (float) std::min(getHeight(), 66) * 0.5f;
+    const juce::Point<float> c(R + 4.f, (float) getHeight() * 0.5f);
+
+    // button
+    g.setColour(juce::Colour(0xff0b0b0b));
+    g.fillEllipse(c.x - R, c.y - R, 2.f * R, 2.f * R);
+    g.setColour(rec ? juce::Colour(0xffff4a3a) : juce::Colour(0xff7a7a7a));
+    g.drawEllipse(c.x - R + 1.f, c.y - R + 1.f, 2.f * R - 2.f, 2.f * R - 2.f, 2.f);
+    if (rec)
+    {
+      const bool blink = ((juce::Time::getMillisecondCounter() / 500) & 1) != 0;
+      g.setColour(blink ? juce::Colour(0xffff3b2a) : juce::Colour(0xffb02418));
+      g.fillRoundedRectangle(c.x - R * 0.34f, c.y - R * 0.34f, R * 0.68f, R * 0.68f, 3.f);   // stop square
+    }
+    else
+    {
+      g.setColour(avail ? juce::Colour(0xffe02a1a) : juce::Colour(0xff4a4a4a));
+      g.fillEllipse(c.x - R * 0.42f, c.y - R * 0.42f, R * 0.84f, R * 0.84f);                  // record dot
+    }
+
+    // time
+    const double sec = (avail && h.seconds) ? h.seconds() : 0.0;
+    const int m = (int) (sec / 60.0), s = (int) sec % 60, ds = (int) (sec * 10.0) % 10;
+    g.setColour(rec ? juce::Colour(0xffff6a5a) : juce::Colours::white);
+    g.setFont(juce::FontOptions(24.f, juce::Font::bold));
+    const float tx = c.x + R + 12.f;
+    g.drawText(juce::String::formatted("%02d:%02d.%d", m, s, ds), (int) tx, 4, getWidth() - (int) tx, 30,
+               juce::Justification::centredLeft);
+
+    // level meter
+    const float lv = (avail && h.level) ? juce::jlimit(0.f, 1.f, h.level()) : 0.f;
+    juce::Rectangle<float> mb(tx, 40.f, (float) getWidth() - tx - 4.f, 10.f);
+    g.setColour(juce::Colour(0xff0b0b0b)); g.fillRoundedRectangle(mb, 3.f);
+    g.setColour(lv > 0.9f ? juce::Colour(0xffff4a3a) : juce::Colour(0xff4ad66a));
+    g.fillRoundedRectangle(mb.withWidth(std::max(2.f, mb.getWidth() * lv)), 3.f);
+
+    // status line
+    g.setColour(juce::Colours::white.withAlpha(0.7f));
+    g.setFont(juce::FontOptions(10.f));
+    juce::String status = !avail ? "recorder not available"
+                        : rec ? "recording the master output (24-bit WAV)"
+                        : (h.lastName && h.lastName().isNotEmpty() ? "last: " + h.lastName() : "tap the red button to record");
+    g.drawText(status, (int) tx, 54, getWidth() - (int) tx, 14, juce::Justification::centredLeft);
+  }
+
+  void mouseUp(const juce::MouseEvent& e) override
+  {
+    auto& h = kr106touch::hostRecorder();
+    const float R = (float) std::min(getHeight(), 66) * 0.5f;
+    const juce::Point<float> c(R + 4.f, (float) getHeight() * 0.5f);
+    if (h.toggle && e.position.getDistanceFrom(c) <= R + 6.f) h.toggle();
+  }
+
+private:
+  void timerCallback() override { if (isShowing()) repaint(); }
+};
+
+// ---------------------------------------------------------------------------
+// Live view of the Clouds buffer: grains drawn as bars over the 2 s buffer
+// (left = oldest, right = newest). Blue outline while frozen.
+class KR106CloudsView : public juce::Component, private juce::Timer
+{
+public:
+  explicit KR106CloudsView(KR106AudioProcessor* p) : mProc(p) { startTimerHz(30); }
+
+  void paint(juce::Graphics& g) override
+  {
+    auto r = getLocalBounds().toFloat().reduced(0.5f);
+    g.setColour(juce::Colour(0xff08100c));
+    g.fillRoundedRectangle(r, 4.f);
+    const bool frozen = mViz.frozen;
+    g.setColour(frozen ? juce::Colour(0xff4a7aff) : juce::Colour(0xff2a4a34));
+    g.drawRoundedRectangle(r, 4.f, frozen ? 2.f : 1.f);
+    // time ruler
+    g.setColour(juce::Colour(0xff1c3024));
+    for (int i = 1; i < 4; i++) g.drawVerticalLine((int) (r.getX() + r.getWidth() * i / 4.f), r.getY() + 3.f, r.getBottom() - 3.f);
+    // grains
+    for (int i = 0; i < mViz.count; i++)
+    {
+      const float x = r.getX() + 4.f + (r.getWidth() - 8.f) * juce::jlimit(0.f, 1.f, mViz.pos[i]);
+      const float a = juce::jlimit(0.f, 1.f, mViz.amp[i]);
+      const float h = (r.getHeight() - 16.f) * (0.15f + 0.85f * a);
+      g.setColour(juce::Colour(0xff6affa0).withAlpha(0.25f + 0.75f * a));
+      g.fillRoundedRectangle(x - 1.5f, r.getCentreY() - h * 0.5f, 3.f, h, 1.5f);
+    }
+    g.setColour(juce::Colours::white.withAlpha(0.55f));
+    g.setFont(juce::FontOptions(9.5f));
+    g.drawText("2 s ago", getLocalBounds().withTrimmedLeft(6).withTrimmedTop(2), juce::Justification::topLeft);
+    g.drawText(frozen ? "FROZEN" : "now", getLocalBounds().withTrimmedRight(6).withTrimmedTop(2), juce::Justification::topRight);
+    g.drawText(juce::String(mViz.count) + " grains", getLocalBounds().withTrimmedLeft(6).withTrimmedBottom(2), juce::Justification::bottomLeft);
+  }
+
+private:
+  void timerCallback() override
+  {
+    if (!isShowing() || mProc == nullptr) return;
+    mProc->mDSP.mClouds.GetViz(mViz);
+    repaint();
+  }
+  KR106AudioProcessor* mProc;
+  kr106::Clouds::Viz mViz {};
+};
+
+// ---------------------------------------------------------------------------
 class KR106TouchKeys : public juce::Component, private juce::Timer
 {
 public:
