@@ -73,7 +73,7 @@ static void saveFileAs(const juce::File& src, const juce::String& suggestedName,
 static void pickImport(std::function<void(const juce::String& name, const juce::MemoryBlock&)> each,
                        std::function<void()> finished)
 {
-  auto chooser = std::make_shared<juce::FileChooser>("Import state or zip", juce::File(), "*.kr106state;*.zip");
+  auto chooser = std::make_shared<juce::FileChooser>("Import state or zip", juce::File(), "*");   // "*": the picker has no MIME type for .kr106state
   chooser->launchAsync(juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles
                          | juce::FileBrowserComponent::canSelectMultipleItems,
     [chooser, each, finished](const juce::FileChooser& fc)
@@ -886,6 +886,8 @@ public:
     auto& desk = juce::Desktop::getInstance();
     desk.setOrientationsEnabled(juce::Desktop::rotatedClockwise | juce::Desktop::rotatedAntiClockwise);
     desk.setScreenSaverEnabled(false);          // keep the screen on while playing
+    // Android has no MIME type for our extension: map it, so pickers and share sheets treat it as a file
+    juce::FileChooser::registerCustomMimeTypeForFileExtension("application/octet-stream", "kr106state");
     // Dark look for the system-style dialogs (save preset etc.)
     laf.setColourScheme(juce::LookAndFeel_V4::getMidnightColourScheme());
     juce::LookAndFeel::setDefaultLookAndFeel(&laf);
