@@ -51,7 +51,9 @@ public:
     g.fillRect(9.f, 2.f, 1.f, 45.f);
 
     // handle
-    const float val = mParam ? juce::jlimit(0.f, 1.f, mParam->getValue()) : 0.f;
+    // the handle follows the matrix while a modulation source drives this control
+    const float val = juce::jlimit(0.f, 1.f, (mProcessor && mParamIdx >= 0) ? mProcessor->modDisplayValue(mParamIdx)
+                                                                          : (mParam ? mParam->getValue() : 0.f));
     const float cy = 44.f - val * 40.f + 1.f;
     juce::Rectangle<float> h(2.f, cy - 4.5f, 15.f, 9.f);
     g.setColour(juce::Colours::black.withAlpha(0.45f));

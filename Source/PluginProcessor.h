@@ -51,7 +51,7 @@ enum EParams
   // Clouds (granular)
   kCldPos, kCldSize, kCldPitch, kCldDens, kCldTex, kCldSpread, kCldFb, kCldRev, kCldMix, kCldFreeze,
   kModFirst,   // modulation block: 2 LFOs, envelope, 12-slot matrix (global, not in presets)
-  kNumParams = kModFirst + 59
+  kNumParams = kModFirst + 61
 };
 
 // Offsets into the modulation block (see KR106ModEngine.h for what each control does)
@@ -66,6 +66,7 @@ constexpr int kModEnvAtt = kModFirst + 16, kModEnvDec = kModFirst + 17, kModEnvS
               kModEnvVel = kModFirst + 22;
 constexpr int kModRouteBase = kModFirst + 23;     // 12 rows x (source, target, amount)
 constexpr int kModRows = 12;
+constexpr int kCldDecay = kModFirst + 59, kCldTone = kModFirst + 60;   // Clouds reverb decay (0.5..8 s) and tone
 
 class KR106AudioProcessor : public juce::AudioProcessor
 {
@@ -166,6 +167,8 @@ public:
   kr106::ModEnv mModEnv;
   uint32_t mSeenOns = 0, mSeenOffs = 0;
   std::atomic<float> mModSrcLast[4] {{0.f}, {0.f}, {0.f}, {0.f}};   // LFO 1, LFO 2, envelope: last values for the LEDs
+  // Value a control should show: the modulated value while the matrix drives it, else the user value
+  float modDisplayValue(int p) const { return (p >= 0 && p < kNumParams && mModActive[p]) ? mModSent[p] : (mParams[p] ? mParams[p]->getValue() : 0.f); }
   float getModSourceValue(int s) const { return (s >= 0 && s < 4) ? mModSrcLast[s].load(std::memory_order_relaxed) : 0.f; }
   float mModSent[kNumParams] = {};
   bool  mModActive[kNumParams] = {};

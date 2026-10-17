@@ -416,11 +416,11 @@ KR106Editor::KR106Editor(KR106AudioProcessor& p)
         mLearnableParams.push_back(kCldFreeze);
         mLearnableControls.push_back({ kCldFreeze, mFreezeBtn });
         const int cy = ty + 70;
-        const char* names[9] = { "Position", "Size", "Pitch", "Density", "Texture", "Spread", "Feedback", "Reverb", "Mix" };
-        const int ids[9] = { kCldPos, kCldSize, kCldPitch, kCldDens, kCldTex, kCldSpread, kCldFb, kCldRev, kCldMix };
-        for (int i = 0; i < 9; i++)
-            knob(ids[i], x0 + 34 + i * 54, cy, names[i], 1.75f);
-        add(new KR106CloudsView(&mProcessor), x0 + 530, ty + 28, 314, 118);
+        const char* names[11] = { "Position", "Size", "Pitch", "Density", "Texture", "Spread", "Feedback", "Reverb", "Decay", "Tone", "Mix" };
+        const int ids[11] = { kCldPos, kCldSize, kCldPitch, kCldDens, kCldTex, kCldSpread, kCldFb, kCldRev, kCldDecay, kCldTone, kCldMix };
+        for (int i = 0; i < 11; i++)
+            knob(ids[i], x0 + 30 + i * 50, cy, names[i], 1.6f);
+        add(new KR106CloudsView(&mProcessor), x0 + 572, ty + 28, 270, 118);
     }
     const int lastFxChild = mContent.getNumChildComponents();
     for (int i = firstFxChild; i < lastFxChild; i++) mPageCtrls[1].push_back(mContent.getChildComponent(i));

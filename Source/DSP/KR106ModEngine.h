@@ -144,7 +144,7 @@ static constexpr const char* kModSourceNames[kNumModSources] = { "None", "LFO 1"
 static inline int modSourceFromValue(float v)
 { return std::max(0, std::min(kNumModSources - 1, static_cast<int>(std::round(v * (kNumModSources - 1))))); }
 
-static constexpr int kNumModTargets = 35;
+static constexpr int kNumModTargets = 37;
 // Grouped so the target menu is two short menus (group, then item)
 static constexpr const char* kModTargetNames[kNumModTargets] = {
   "VCF Freq", "VCF Res", "VCF Env", "VCF LFO", "HPF Freq", "VCA Level",
@@ -152,15 +152,15 @@ static constexpr const char* kModTargetNames[kNumModTargets] = {
   "Env Attack", "Env Decay", "Env Sustain", "Env Release",
   "Tape Time", "Tape Feedback", "Tape Mix", "Tape Tone", "Tape Wow",
   "Digital Time", "Digital Feedback", "Digital Mix",
-  "Clouds Position", "Clouds Size", "Clouds Pitch", "Clouds Density", "Clouds Mix", "Clouds Reverb",
+  "Clouds Position", "Clouds Size", "Clouds Pitch", "Clouds Density", "Clouds Mix", "Clouds Reverb", "Clouds Decay", "Clouds Tone",
   "Arp Rate", "Arp Swing", "Arp Gate", "Arp Ratchet", "Limiter Ceiling"
 };
 static constexpr int kNumModGroups = 7;
 static constexpr const char* kModGroupNames[kNumModGroups] = {
   "Filter & amp", "Oscillator & LFO", "Envelope", "Tape delay", "Digital delay", "Clouds", "Arp & limiter"
 };
-static constexpr int kModGroupStart[kNumModGroups] = { 0, 6, 12, 16, 21, 24, 30 };
-static constexpr int kModGroupCount[kNumModGroups] = { 6, 6, 4, 5, 3, 6, 5 };
+static constexpr int kModGroupStart[kNumModGroups] = { 0, 6, 12, 16, 21, 24, 32 };
+static constexpr int kModGroupCount[kNumModGroups] = { 6, 6, 4, 5, 3, 8, 5 };
 static inline int modGroupOf(int t)
 { for (int g = 0; g < kNumModGroups; g++) if (t >= kModGroupStart[g] && t < kModGroupStart[g] + kModGroupCount[g]) return g; return 0; }
 static inline float valueFromModTarget(int t) { return static_cast<float>(t) / (kNumModTargets - 1); }

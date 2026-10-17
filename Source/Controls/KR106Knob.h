@@ -44,7 +44,9 @@ public:
     // Draw them as vectors instead (crisp at any size): value arc + metal cap + pointer.
     void paintVectorKnob(juce::Graphics& g)
     {
-        const float val = mParam ? juce::jlimit(0.f, 1.f, mParam->getValue()) : 0.f;
+        // the arc follows the matrix while a modulation source drives this control
+        const float val = juce::jlimit(0.f, 1.f, (mProcessor && mParamIdx >= 0) ? mProcessor->modDisplayValue(mParamIdx)
+                                                                              : (mParam ? mParam->getValue() : 0.f));
         const auto c = getLocalBounds().toFloat().getCentre();
         const float rCap = 7.4f, rArc = 11.0f;
         const float a0 = juce::degreesToRadians(-135.f), a1 = juce::degreesToRadians(135.f);

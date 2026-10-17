@@ -70,6 +70,15 @@ aleatoriedade), Spread (panorama), Feedback, Reverb e Mix. **Freeze** para a gra
 grãos tocarem o buffer congelado. O reverb do Clouds é mais profundo que o da primeira versão: a cauda dura cerca de 3 s (antes 1,3 s), com mais difusão no início (menos ecos separados) e tom um pouco mais escuro. O visor mostra os grãos sobre os últimos 2 s. Mix em 0 deixa
 o som idêntico.
 
+Decay (0,5 s a 8 s) e Tone (escuro a brilhante) completam o reverb do Clouds. Com o Tone no
+máximo a cauda fica um pouco mais brilhante (cerca de 1,3 dB mais energia acima de 2 kHz) e o
+decay continua limitado a cerca de 8 s.
+
+## Feedback de modulação
+
+Knobs mostram o arco vermelho no valor que realmente está sendo tocado: se um LFO ou o envelope
+modula o controle, o arco acompanha. Faders mostram a posição modulada da mesma forma.
+
 ## Limiter
 
 Página FX. Limiter com look-ahead (1,5 ms) no fim da cadeia: Ceiling (-12 a 0 dB) e Release

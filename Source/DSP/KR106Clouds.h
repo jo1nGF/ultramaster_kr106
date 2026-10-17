@@ -42,9 +42,20 @@ namespace kr106 {
 class CloudReverb
 {
 public:
+  // Decay: RT60 from 0.5 s (v = 0) to 8 s (v = 1). Tone: 0 = dark (strong damping), 1 = bright.
+  void SetDecay(float v) { mDecayV = std::min(1.f, std::max(0.f, v)); UpdateRoom(); }
+  void SetTone(float v)
+  {
+    v = std::min(1.f, std::max(0.f, v));
+    mDamp = 0.7f * (1.f - v);
+    UpdateRoom();                                                      // brighter tail rings longer: compensate
+  }
+
   void Init(float sr)
   {
+    mSR = sr;
     static const int combT[8] = { 1116, 1188, 1277, 1356, 1422, 1491, 1557, 1617 };
+    mDavg = 0.f; for (int i = 0; i < 8; i++) mDavg += combT[i] * kRoomScale * (sr / 44100.f) / 8.f;
     static const int apT[4]   = { 556, 441, 341, 225 };
     static const int dfT[kDiffN] = { 113, 157, 241, 337, 61, 89, 127, 181 };
     const float k = sr / 44100.f;
@@ -92,8 +103,8 @@ public:
       {
         auto& b = mComb[c][i]; size_t& p = mCombPos[c][i];
         const float y = b[p];
-        mCombLP[c][i] = y * (1.f - kDamp) + mCombLP[c][i] * kDamp;
-        b[p] = xc + mCombLP[c][i] * kRoom;
+        mCombLP[c][i] = y * (1.f - mDamp) + mCombLP[c][i] * mDamp;
+        b[p] = xc + mCombLP[c][i] * mRoom;
         if (++p >= b.size()) p = 0;
         sum += y;
       }
@@ -112,8 +123,18 @@ public:
 
 private:
   static constexpr float kRoomScale = 1.18f;   // bigger room than before -> deeper
-  static constexpr float kRoom = 0.93f;        // feedback: long decay
-  static constexpr float kDamp = 0.42f;        // damping: darker, warmer tail
+  float mSR = 44100.f, mDavg = 1500.f, mDecayV = 0.6f;
+  void UpdateRoom()
+  {
+    // target RT60 0.5 .. 8 s; x1.10 matches the measured tail at tone 0.4;
+    // the damping factor removes the extra length a bright tone adds (measured 1.16 at tone 1)
+    const float comp = std::min(1.2f, std::max(0.9f, 1.f + 0.38f * (0.42f - mDamp)));
+    const float t60 = (0.5f + 7.5f * mDecayV * mDecayV) * 1.10f / comp;
+    const float g = std::pow(10.f, -3.f * mDavg / (t60 * mSR));
+    mRoom = std::min(0.995f, std::max(0.5f, g));
+  }
+  float mRoom = 0.93f;                        // feedback, set from Decay
+  float mDamp = 0.42f;                        // damping, set from Tone
   static constexpr int kDiffN = 8;             // input diffusion stages
   static constexpr float kDiffG = 0.66f;       // input diffusion coefficient
   static constexpr float kIn = 0.015f;
@@ -146,6 +167,8 @@ public:
     mHead = 0;
     for (auto& g : mGrains) g.active = false;
     mReverb.Init(sampleRate);
+    mReverb.SetDecay(0.6f);
+    mReverb.SetTone(0.4f);
     mCoeff = 1.f - expf(-1.f / (0.02f * sampleRate));
     mSpawnAcc = 0.f; mRng = 0x2F6E2B1u; mActSmooth = 1.f;
     BuildWindow();
@@ -162,6 +185,8 @@ public:
   void SetReverb(float v)   { mP[7] = clamp01(v); }
   void SetMix(float v)      { mP[8] = clamp01(v); }
   void SetFreeze(bool f)    { mFreeze = f; }
+  void SetDecay(float v)    { mReverb.SetDecay(v); }
+  void SetTone(float v)     { mReverb.SetTone(v); }
   bool IsFrozen() const     { return mFreeze; }
   void Snap() { for (int i = 0; i < 9; i++) mS[i] = mP[i]; }
 

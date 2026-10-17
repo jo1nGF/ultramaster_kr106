@@ -582,6 +582,9 @@ KR106AudioProcessor::KR106AudioProcessor()
     addSlider(kModRouteBase + 3 * r + 1, nm(pre + "Target").c_str(), 0.f, 0.f, 1.f, fmtTgt);
     addSlider(kModRouteBase + 3 * r + 2, nm(pre + "Amount").c_str(), 0.5f, 0.f, 1.f, fmtAmt);
   }
+  SFV fmtCldDecay = [](float v, int) -> juce::String { return juce::String(0.5f + 7.5f * v * v, 1) + " s"; };
+  addSlider(kCldDecay, "Clouds Decay", 0.6f, 0.f, 1.f, fmtCldDecay);
+  addSlider(kCldTone,  "Clouds Tone",  0.4f, 0.f, 1.f, fmtPct, parsePct);
 
   // Build factory presets from compiled-in data (raw 7-bit integer values)
   constexpr int kFactoryValues = sizeof(KR106FactoryPreset::values) / sizeof(int);
@@ -1373,7 +1376,9 @@ void KR106AudioProcessor::parameterChanged(int paramIdx, float newValue)
            + " voiceNote=[" + voiceNotes.trim() + "]"
            + " portaMode=" + juce::String(mDSP.mPortaMode));
     }
-    mDSP.SetParam(paramIdx, static_cast<double>(newValue));
+    if (paramIdx == kCldDecay)     mDSP.mClouds.SetDecay(newValue);
+    else if (paramIdx == kCldTone) mDSP.mClouds.SetTone(newValue);
+    else mDSP.SetParam(paramIdx, static_cast<double>(newValue));
 
     // Remap params when switching modes (preserve Hz/ms values, not slider positions)
     // Only remap if the mode actually changed (not just reloaded same value)
@@ -1454,12 +1459,20 @@ static const int kModTargetParam[kr106::kNumModTargets] = {
   kEnvA, kEnvD, kEnvS, kEnvR,
   kDelayTime, kDelayFeedback, kDelayMix, kDelayTone, kDelayWow,
   kDDelayTime, kDDelayFeedback, kDDelayMix,
-  kCldPos, kCldSize, kCldPitch, kCldDens, kCldMix, kCldRev,
+  kCldPos, kCldSize, kCldPitch, kCldDens, kCldMix, kCldRev, kCldDecay, kCldTone,
   kArpRate, kArpSwing, kArpGate, kArpRatchet, kLimCeil
 };
 
 void KR106AudioProcessor::applyModulation(int nFrames, const juce::MidiBuffer& /*midi*/)
 {
+  // same dispatch as the user's control changes (Clouds decay / tone go to the reverb directly)
+  auto sendToDsp = [this](int p, float v)
+  {
+    if (p == kCldDecay)     mDSP.mClouds.SetDecay(v);
+    else if (p == kCldTone) mDSP.mClouds.SetTone(v);
+    else mDSP.SetParam(p, static_cast<double>(v));
+  };
+
   // Gate: every note event that reaches the synth - keys, MIDI, arpeggiator steps - is counted in the DSP
   if (mDSP.mModNoteOns != mSeenOns)
   {
@@ -1506,14 +1519,14 @@ void KR106AudioProcessor::applyModulation(int nFrames, const juce::MidiBuffer& /
       const float v = juce::jlimit(0.f, 1.f, base + add[p]);
       if (!mModActive[p] || std::fabs(v - mModSent[p]) > 1e-5f)
       {
-        mDSP.SetParam(p, static_cast<double>(v));
+        sendToDsp(p, v);
         mModSent[p] = v;
         mModActive[p] = true;
       }
     }
     else if (mModActive[p])
     {
-      mDSP.SetParam(p, static_cast<double>(base));          // no longer modulated: back to the user value
+      sendToDsp(p, base);                                   // no longer modulated: back to the user value
       mModActive[p] = false;
     }
   }
