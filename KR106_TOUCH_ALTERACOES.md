@@ -33,3 +33,7 @@ O teste cobre a preservação dos códigos antigos, o retorno dos 69 destinos, o
 **Não foi gerado nem testado um APK instalável neste ambiente.** O ZIP de entrada não inclui `libs/JUCE`, `resources/` (imagens/fontes usados pelo projeto), nem `.gitmodules`, e `ANDROID_HOME` não está configurado. O CMake falha ao tentar executar `add_subdirectory(libs/JUCE)` porque essa pasta não existe. Portanto, este pacote é uma entrega das alterações de código sobre os arquivos fornecidos, não um APK pronto para instalação.
 
 Para produzir o APK, aplique as alterações à cópia completa do projeto que contenha os recursos originais e o submódulo JUCE. O workflow Android existente em `.github/workflows/android-apk.yml` foi mantido; a compilação deve ser executada nesse ambiente completo com o SDK/NDK Android configurado.
+
+## Correção adicional do erro de build (17/10/2026)
+
+O build Android reportou identificadores `mParam` e `mHandleImg` não declarados em `Source/Controls/KR106Slider.h`. A causa era uma edição anterior que substituiu indevidamente parte da classe e removeu as declarações dos membros, assim como as classes derivadas `KR106HPFSlider`, `KR106ArpRateSlider` e `KR106LfoRateSlider`. O cabeçalho foi reconstruído a partir da versão-fonte recebida, preservando o reset por duplo toque para faders contínuos. O teste DSP `feature_smoke.cpp` foi recompilado e executado com sucesso após a correção. A compilação Android completa não foi executada neste ambiente porque o ZIP fornecido não inclui `libs/JUCE` nem os recursos Android completos.

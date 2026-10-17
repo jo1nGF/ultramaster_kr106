@@ -221,18 +221,175 @@ public:
   void mouseDoubleClick(const juce::MouseEvent&) override
   {
     if (!mParam) return;
-    // Integer/bool controls keep their click semantics; continuous faders reset.
+    // Preserve toggle/discrete click semantics; reset continuous faders to their
+    // parameter's normalized default on double tap/click.
     if (dynamic_cast<juce::AudioParameterBool*>(mParam)) return;
     if (dynamic_cast<juce::AudioParameterInt*>(mParam)) return;
     if (mEditor) dismissEdit();
     if (mTooltip) mTooltip->hide();
-    const float def = mParam->getDefaultValue(); // normalized default, respects each parameter's range
+
+    const float def = mParam->getDefaultValue();
     mParam->beginChangeGesture();
     mParam->setValueNotifyingHost(def);
     mParam->endChangeGesture();
     mAccumVal = def;
     mLastRawDY = 0.f;
     repaint();
+  }
+
+private:
+  void commitEdit()
+  {
+    if (!mEditor || !mParam) return;
+    juce::String raw = mEditor->getText().trim();
+    if (raw.isEmpty()) { dismissEdit(); return; }
+
+    // Parse via the parameter's own valueFromString (handles bracket [N]
+    // with the correct per-param byte range, e.g. PWM uses 0-105 on J106).
+    float normalized = juce::jlimit(0.f, 1.f, mParam->getValueForText(raw));
+    mParam->beginChangeGesture();
+    mParam->setValueNotifyingHost(normalized);
+    mParam->endChangeGesture();
+    repaint();
+    dismissEdit();
+  }
+
+  void dismissEdit()
+  {
+    if (!mEditor) return;
+    auto editor = std::move(mEditor);
+    editor->setLookAndFeel(nullptr);
+    editor->onFocusLost = nullptr;
+    if (auto* parent = editor->getParentComponent())
+      parent->removeChildComponent(editor.get());
+  }
+
+  // --- Edit-box LookAndFeel: 1px sharp border matching tooltip ---
+  struct EditBoxLnF : juce::LookAndFeel_V4
+  {
+    void drawTextEditorOutline(juce::Graphics& g, int w, int h, juce::TextEditor&) override
+    {
+      g.setColour(juce::Colour(128, 128, 128));
+      g.drawRect(0, 0, w, h, 1);
+    }
+  };
+  static EditBoxLnF& getEditBoxLnF() { static EditBoxLnF lnf; return lnf; }
+
+  // Find where the numeric portion ends (for text selection)
+  static int findNumericEnd(const juce::String& text)
+  {
+    int i = 0, len = text.length();
+    if (i < len && (text[i] == '+' || text[i] == '-')) i++;
+    bool hasDigit = false;
+    while (i < len && (juce::CharacterFunctions::isDigit(text[i]) || text[i] == '.'))
+    { if (text[i] != '.') hasDigit = true; i++; }
+    return hasDigit ? i : len;
+  }
+
+  int getNumSteps() const
+  {
+    if (dynamic_cast<juce::AudioParameterBool*>(mParam)) return 1;
+    if (auto* pi = dynamic_cast<juce::AudioParameterInt*>(mParam))
+      return pi->getRange().getLength();
+    return 0; // continuous
+  }
+
+  void updateCCLine()
+  {
+    if (!mTooltip) return;
+    if (!mProcessor || mParamIdx < 0) { mTooltip->setLine2({}); return; }
+    if (mProcessor->mMidiLearnParam.load(std::memory_order_relaxed) == mParamIdx)
+    {
+      int cc = mProcessor->getCCForParam(mParamIdx);
+      mTooltip->setLine2(cc >= 0 ? "MIDI LEARN (CC " + juce::String(cc) + ")" : "MIDI LEARN");
+      return;
+    }
+    int cc = mProcessor->getCCForParam(mParamIdx);
+    mTooltip->setLine2(cc >= 0 ? "CC " + juce::String(cc) : "CC ??");
+  }
+
+  void handleMidiLearnClick()
+  {
+    if (!mProcessor || mParamIdx < 0) return;
+    mProcessor->startMidiLearn(mParamIdx);
+    updateCCLine();
+    if (mTooltip) mTooltip->show(mParam, this);
+    repaint();
+  }
+
+protected:
+  juce::RangedAudioParameter* mParam = nullptr;
+  KR106AudioProcessor* mProcessor = nullptr;
+  int mParamIdx = -1;
+  int mExtraRight = 0;
+
+private:
+  KR106Tooltip* mTooltip = nullptr;
+  juce::Image mHandleImg;
+  std::unique_ptr<juce::TextEditor> mEditor;
+  float mAccumVal = 0.f;
+  float mLastRawDY = 0.f;
+  bool mDragging = false;
+  bool mRightDrag = false;
+  bool mCursorDirty = false;
+
+  void applyCursorWorkaround(const juce::MouseEvent& e)
+  {
+    if (!mCursorDirty) return;
+    mCursorDirty = false;
+    if (auto* source = juce::Desktop::getInstance().getMouseSource(e.source.getIndex()))
+    {
+        source->showMouseCursor(getMouseCursor());
+        source->forceMouseCursorUpdate();
+    }
+  }
+};
+
+// HPF slider: draws tick marks, snaps to 4 positions in J60/J106 mode.
+// In J6 mode (mSynthModel == kJ6), behaves as a continuous slider.
+class KR106HPFSlider : public KR106Slider
+{
+public:
+  KR106HPFSlider(juce::RangedAudioParameter* param, KR106Tooltip* tip,
+                 const juce::Image& handleImg, kr106::Model* synthModel)
+    : KR106Slider(param, tip, handleImg), mSynthModel(synthModel) {}
+
+  void paintTickMarks(juce::Graphics& g) override
+  {
+    auto bright = juce::Colour(219, 219, 219);
+    auto dim    = juce::Colour(126, 126, 126);
+    if (mSynthModel && *mSynthModel == kr106::kJ6)
+    {
+      // J6: 11 tick marks (continuous slider)
+      KR106Slider::paintTickMarks(g);
+    }
+    else
+    {
+      // J60/J106: 4 tick marks at switch positions, bright
+      float tw = 17.f + static_cast<float>(mExtraRight);
+      for (int i = 0; i < 4; i++)
+      {
+        float y = std::round(44.f - i * (40.f / 3.f));
+        g.setColour(bright);
+        g.fillRect(1.f, y, tw, 1.f);
+      }
+    }
+  }
+
+  void mouseDrag(const juce::MouseEvent& e) override
+  {
+    KR106Slider::mouseDrag(e);
+    // In J60/J106 mode, snap to 4 positions (0, 1/3, 2/3, 1)
+    if (mSynthModel && *mSynthModel != kr106::kJ6 && mParam)
+    {
+      float val = mParam->getValue();
+      float snapped = std::round(val * 3.f) / 3.f;
+      if (snapped != val)
+      {
+        mParam->setValueNotifyingHost(snapped);
+        repaint();
+      }
+    }
   }
 
   void mouseUp(const juce::MouseEvent& e) override
