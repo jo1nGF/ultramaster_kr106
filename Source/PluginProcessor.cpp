@@ -582,8 +582,10 @@ KR106AudioProcessor::KR106AudioProcessor()
     addSlider(kModRouteBase + 3 * r + 1, nm(pre + "Target").c_str(), 0.f, 0.f, 1.f, fmtTgt);
     addSlider(kModRouteBase + 3 * r + 2, nm(pre + "Amount").c_str(), 0.5f, 0.f, 1.f, fmtAmt);
   }
-  SFV fmtCldDecay = [](float v, int) -> juce::String { return juce::String(0.5f + 7.5f * v * v, 1) + " s"; };
-  addSlider(kCldDecay, "Clouds Decay", 0.6f, 0.f, 1.f, fmtCldDecay);
+  SFV fmtCldDecay = [](float v, int) -> juce::String { return juce::String(0.5f + 29.5f * v * v, 1) + " s"; };
+  addSlider(kCldDecay, "Clouds Decay", 0.3f, 0.f, 1.f, fmtCldDecay);
+  SFV fmtCldMode = [](float v, int) -> juce::String { return kr106::kCloudModeNames[kr106::cloudModeFromValue(v)]; };
+  addSlider(kCldMode, "Clouds Mode", 0.f, 0.f, 1.f, fmtCldMode);
   addSlider(kCldTone,  "Clouds Tone",  0.4f, 0.f, 1.f, fmtPct, parsePct);
 
   // Build factory presets from compiled-in data (raw 7-bit integer values)
@@ -1378,6 +1380,7 @@ void KR106AudioProcessor::parameterChanged(int paramIdx, float newValue)
     }
     if (paramIdx == kCldDecay)     mDSP.mClouds.SetDecay(newValue);
     else if (paramIdx == kCldTone) mDSP.mClouds.SetTone(newValue);
+    else if (paramIdx == kCldMode) mDSP.mClouds.SetMode(kr106::cloudModeFromValue(newValue));
     else mDSP.SetParam(paramIdx, static_cast<double>(newValue));
 
     // Remap params when switching modes (preserve Hz/ms values, not slider positions)

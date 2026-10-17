@@ -5,6 +5,8 @@
 #include <atomic>
 #include <cstdint>
 #include <vector>
+#include "KR106CloudsSpectral.h"
+#include "KR106CloudsWsola.h"
 
 // KR-106 "Clouds": a granular texture processor (in the spirit of Mutable
 // Instruments Clouds), placed near the end of the effect chain.
@@ -29,6 +31,12 @@
 #endif
 
 namespace kr106 {
+
+// Firmware names (same order as the Clouds Mode parameter) and the value -> mode mapping
+static constexpr int kNumCloudModes = 4;
+static constexpr const char* kCloudModeNames[kNumCloudModes] = { "Granular", "Pitch shift", "Looping delay", "Spectral" };
+static inline int cloudModeFromValue(float v)
+{ return std::max(0, std::min(kNumCloudModes - 1, static_cast<int>(std::round(v * (kNumCloudModes - 1))))); }
 
 // Stereo "Space" reverb for the cloud: a dense, deep tail.
 //
@@ -129,9 +137,9 @@ private:
     // target RT60 0.5 .. 8 s; x1.10 matches the measured tail at tone 0.4;
     // the damping factor removes the extra length a bright tone adds (measured 1.16 at tone 1)
     const float comp = std::min(1.2f, std::max(0.9f, 1.f + 0.38f * (0.42f - mDamp)));
-    const float t60 = (0.5f + 7.5f * mDecayV * mDecayV) * 1.10f / comp;
+    const float t60 = (0.5f + 29.5f * mDecayV * mDecayV) * 1.10f / comp;
     const float g = std::pow(10.f, -3.f * mDavg / (t60 * mSR));
-    mRoom = std::min(0.995f, std::max(0.5f, g));
+    mRoom = std::min(0.9995f, std::max(0.5f, g));
   }
   float mRoom = 0.93f;                        // feedback, set from Decay
   float mDamp = 0.42f;                        // damping, set from Tone
@@ -167,8 +175,11 @@ public:
     mHead = 0;
     for (auto& g : mGrains) g.active = false;
     mReverb.Init(sampleRate);
-    mReverb.SetDecay(0.6f);
+    mReverb.SetDecay(0.3f);
     mReverb.SetTone(0.4f);
+    mSpec[0].Init(); mSpec[1].Init(); mWsInit = false;
+    // the STFT output is N-1 samples late: the dry path uses the same delay so the mix stays aligned
+    mDry[0].assign(CloudSpectral::N - 1, 0.f); mDry[1].assign(CloudSpectral::N - 1, 0.f); mDryPos = 0;
     mCoeff = 1.f - expf(-1.f / (0.02f * sampleRate));
     mSpawnAcc = 0.f; mRng = 0x2F6E2B1u; mActSmooth = 1.f;
     BuildWindow();
@@ -187,6 +198,9 @@ public:
   void SetFreeze(bool f)    { mFreeze = f; }
   void SetDecay(float v)    { mReverb.SetDecay(v); }
   void SetTone(float v)     { mReverb.SetTone(v); }
+  // Firmware: 0 Granular, 1 Pitch shifter / time stretch, 2 Looping delay, 3 Spectral
+  void SetMode(int m)       { mMode = std::max(0, std::min(3, m)); }
+  int  Mode() const         { return mMode; }
   bool IsFrozen() const     { return mFreeze; }
   void Snap() { for (int i = 0; i < 9; i++) mS[i] = mP[i]; }
 
@@ -205,6 +219,9 @@ public:
 
   void Process(float inL, float inR, float& outL, float& outR)
   {
+    if (mMode == kModeLoop)     { ProcessLoop(inL, inR, outL, outR); return; }
+    if (mMode == kModeSpectral) { ProcessSpectral(inL, inR, outL, outR); return; }
+    if (mMode == kModePitchShift) { ProcessPitch(inL, inR, outL, outR); return; }
     for (int i = 0; i < 9; i++) mS[i] += (mP[i] - mS[i]) * mCoeff;
     const float sizeP = mS[1], pitchP = mS[2], densP = mS[3], texP = mS[4];
 
@@ -376,6 +393,136 @@ private:
   float mWin[kWin] = {};
   uint32_t mRng = 1u, mVizTick = 0;
   bool mFreeze = false;
+  enum { kModeGranular = 0, kModePitchShift = 1, kModeLoop = 2, kModeSpectral = 3 };
+  int mMode = 0;
+  CloudSpectral mSpec[2];
+  std::vector<float> mDry[2];
+  size_t mDryPos = 0;
+  WsolaPlayer mWs;
+  bool mWsInit = false;
+  float lpCurrent = 0.f, lpPhase = 0.f, lpLoopPoint = 0.f, lpLoopDur = 0.f, lpTailStart = 0.f, lpTailDur = 1.f, lpLoopReset = 0.f;
+
+  // Looping delay. Port of the Clouds "looping sample player" (Copyright 2014 Emilie Gillet).
+  // Permission is hereby granted, free of charge, to any person obtaining a copy of this software
+  // and associated documentation files (the "Software"), to deal in the Software without
+  // restriction, including without limitation the rights to use, copy, modify, merge, publish,
+  // distribute, sublicense, and/or sell copies of the Software, subject to the MIT conditions:
+  // the above copyright notice and this permission notice shall be included in all copies or
+  // substantial portions of the Software. THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND.
+  // Source: github.com/pichenettes/eurorack (clouds/dsp/looping_sample_player.h)
+  //
+  //  - not frozen: a delay line whose time follows Position (glides smoothly), plus Feedback;
+  //  - frozen: the buffer section chosen by Position and Size loops, with Pitch as playback
+  //    speed and 64-sample crossfades at each loop point.
+  // Clouds' tap-tempo sync is not used here (the module has no trigger input).
+  void ProcessLoop(float inL, float inR, float& outL, float& outR)
+  {
+    for (int i = 0; i < 9; i++) mS[i] += (mP[i] - mS[i]) * mCoeff;
+    const double bufLen = static_cast<double>(mMask + 1);
+    const double maxDelay = bufLen - 64.0;
+    const float in[2] = { inL, inR };
+    float wet[2] = { 0.f, 0.f };
+    if (!mFreeze)
+    {
+      const float target = mS[0] * static_cast<float>(maxDelay);
+      lpCurrent += 0.00005f * (target - lpCurrent);          // tape-speed glide, as in the source
+      const double rp = static_cast<double>(mHead) - 1.0 - static_cast<double>(lpCurrent);
+      for (int c = 0; c < 2; c++)
+      {
+        wet[c] = ReadLinearAt(c, rp);
+        mBuf[c][static_cast<size_t>(mHead & mMask)] = in[c] + wet[c] * mS[6] * 0.95f;   // feedback
+      }
+      mHead++;
+    }
+    else
+    {
+      // loop section (source: loop_point = position * max_delay * 15/16 + crossfade;
+      // loop_duration = (0.01 + 0.99 size^3) * max_delay)
+      const float d = mS[1];
+      float loopPoint = mS[0] * static_cast<float>(maxDelay) * 15.f / 16.f + 64.f;
+      const float loopDur = (0.01f + 0.99f * d * d * d) * static_cast<float>(maxDelay);
+      if (loopPoint + loopDur >= maxDelay) loopPoint = static_cast<float>(maxDelay) - loopDur;
+      const float inc = std::pow(2.f, ((mS[2] - 0.5f) * 48.f) / 12.f);
+      const float head = static_cast<float>(mHead);   // the head stays put while frozen
+      if (lpPhase >= lpLoopDur || lpPhase == 0.f)
+      {
+        if (lpPhase >= lpLoopDur) lpLoopReset = lpLoopDur;
+        if (lpLoopReset >= lpLoopDur) lpLoopReset = lpLoopDur;
+        lpTailStart = lpLoopDur - lpLoopReset + lpLoopPoint;
+        lpPhase = 0.f;
+        lpTailDur = std::min(64.f, 64.f * inc);
+        lpLoopPoint = loopPoint;
+        lpLoopDur = loopDur;
+      }
+      lpPhase += inc;
+      float gain = 1.f;
+      if (lpTailDur != 0.f) gain = std::min(1.f, std::max(0.f, lpPhase / lpTailDur));
+      for (int c = 0; c < 2; c++)
+      {
+        wet[c] = ReadLinearAt(c, static_cast<double>(head) - 1.0 - static_cast<double>(lpLoopDur - lpPhase + lpLoopPoint)) * gain;
+        if (gain != 1.f)
+          wet[c] += ReadLinearAt(c, static_cast<double>(head) - 1.0 - static_cast<double>(-lpPhase + lpTailStart)) * (1.f - gain);
+      }
+    }
+    ApplyReverbAndMix(wet[0], wet[1], inL, inR, outL, outR);
+  }
+
+  // Linear read of channel c at an absolute (fractional) buffer position
+  float ReadLinearAt(int c, double pos) const
+  {
+    const long long i0 = static_cast<long long>(std::floor(pos));
+    const float f = static_cast<float>(pos - static_cast<double>(i0));
+    const float a = mBuf[c][static_cast<size_t>(i0 & mMask)];
+    const float b = mBuf[c][static_cast<size_t>((i0 + 1) & mMask)];
+    return a + (b - a) * f;
+  }
+
+  // Pitch shift / time stretch: WSOLA (see KR106CloudsWsola.h). Pitch = +-24 st, Position = how far
+  // back in the recording the window looks, Size = window width. Freeze stops the recording.
+  void ProcessPitch(float inL, float inR, float& outL, float& outR)
+  {
+    for (int i = 0; i < 9; i++) mS[i] += (mP[i] - mS[i]) * mCoeff;
+    if (!mWsInit) { mWs.Init(mMask + 1); mWsInit = true; }
+    const float pitch = (mS[2] - 0.5f) * 48.f;
+    float wl = 0.f, wr = 0.f;
+    mWs.Tick(mBuf[0].data(), mBuf[1].data(), mMask, mHead, pitch, mS[0], mS[1], wl, wr);
+    if (!mFreeze)
+    {
+      mBuf[0][static_cast<size_t>(mHead & mMask)] = inL + wl * mS[6] * 0.95f;   // feedback
+      mBuf[1][static_cast<size_t>(mHead & mMask)] = inR + wr * mS[6] * 0.95f;
+      mHead++;
+    }
+    ApplyReverbAndMix(wl, wr, inL, inR, outL, outR);
+  }
+
+  // Spectral: STFT stage with a dry path delayed by the same latency.
+  void ProcessSpectral(float inL, float inR, float& outL, float& outR)
+  {
+    for (int i = 0; i < 9; i++) mS[i] += (mP[i] - mS[i]) * mCoeff;
+    const float semis = (mS[2] - 0.5f) * 48.f;
+    const float ratio = std::pow(2.f, semis / 12.f);
+    float wet[2];
+    wet[0] = mSpec[0].Process(inL, ratio, mS[4], mS[6], mFreeze);
+    wet[1] = mSpec[1].Process(inR, ratio, mS[4], mS[6], mFreeze);
+    const size_t dp = mDryPos;
+    const float dryL = mDry[0][dp], dryR = mDry[1][dp];
+    mDry[0][dp] = inL; mDry[1][dp] = inR;
+    mDryPos = (dp + 1) % mDry[0].size();
+    ApplyReverbAndMix(wet[0], wet[1], dryL, dryR, outL, outR);
+  }
+
+  // Common tail for the non-granular modes: reverb send, mix
+  void ApplyReverbAndMix(float gl, float gr, float dryL, float dryR, float& outL, float& outR)
+  {
+    float rl, rr;
+    mReverb.Process(0.5f * (gl + gr), rl, rr);
+    const float rev = mS[7];
+    const float wl = WetLimit(gl * (1.f - 0.4f * rev) + rl * rev);
+    const float wr = WetLimit(gr * (1.f - 0.4f * rev) + rr * rev);
+    const float mix = mS[8];
+    outL = dryL * (1.f - mix) + wl * mix;
+    outR = dryR * (1.f - mix) + wr * mix;
+  }
   std::atomic<float> mVizPos[kMaxGrains], mVizAmp[kMaxGrains];
   std::atomic<int> mVizCount{0};
 };

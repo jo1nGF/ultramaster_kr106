@@ -51,7 +51,7 @@ enum EParams
   // Clouds (granular)
   kCldPos, kCldSize, kCldPitch, kCldDens, kCldTex, kCldSpread, kCldFb, kCldRev, kCldMix, kCldFreeze,
   kModFirst,   // modulation block: 2 LFOs, envelope, 12-slot matrix (global, not in presets)
-  kNumParams = kModFirst + 61
+  kNumParams = kModFirst + 62
 };
 
 // Offsets into the modulation block (see KR106ModEngine.h for what each control does)
@@ -66,7 +66,8 @@ constexpr int kModEnvAtt = kModFirst + 16, kModEnvDec = kModFirst + 17, kModEnvS
               kModEnvVel = kModFirst + 22;
 constexpr int kModRouteBase = kModFirst + 23;     // 12 rows x (source, target, amount)
 constexpr int kModRows = 12;
-constexpr int kCldDecay = kModFirst + 59, kCldTone = kModFirst + 60;   // Clouds reverb decay (0.5..8 s) and tone
+constexpr int kCldDecay = kModFirst + 59, kCldTone = kModFirst + 60;   // Clouds reverb decay (0.5..30 s) and tone
+constexpr int kCldMode = kModFirst + 61;                              // Clouds firmware (0 granular, 1 pitch shift, 2 looping delay, 3 spectral)
 
 class KR106AudioProcessor : public juce::AudioProcessor
 {

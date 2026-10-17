@@ -413,6 +413,17 @@ KR106Editor::KR106Editor(KR106AudioProcessor& p)
     {   // CLOUDS: granular texture with Freeze
         int x0 = 8, ty = kRowB; tile("Clouds", x0, ty, 854, true);
         mFreezeBtn = add(new KR106TouchToggle("Freeze", param(kCldFreeze)), x0 + 854 - 84, ty + 2, 76, 16);
+        {
+          auto* md = add(new KR106TouchChoice("Mode",
+              [this]() { return juce::String(kr106::kCloudModeNames[kr106::cloudModeFromValue(mProcessor.getParam(kCldMode)->getValue())]); },
+              [this, x0, ty]() {
+                juce::StringArray names;
+                for (int i = 0; i < kr106::kNumCloudModes; i++) names.add(kr106::kCloudModeNames[i]);
+                showChoiceMenu(names, kr106::cloudModeFromValue(mProcessor.getParam(kCldMode)->getValue()), { x0 + 8, ty + 48, 150, 26 },
+                               [this](int idx) { mProcessor.getParam(kCldMode)->setValueNotifyingHost(idx / 3.f); });
+              }), x0 + 8, ty + 26, 150, 22);
+          mModChoices.push_back(md);
+        }
         mLearnableParams.push_back(kCldFreeze);
         mLearnableControls.push_back({ kCldFreeze, mFreezeBtn });
         const int cy = ty + 70;

@@ -70,7 +70,7 @@ aleatoriedade), Spread (panorama), Feedback, Reverb e Mix. **Freeze** para a gra
 grãos tocarem o buffer congelado. O reverb do Clouds é mais profundo que o da primeira versão: a cauda dura cerca de 3 s (antes 1,3 s), com mais difusão no início (menos ecos separados) e tom um pouco mais escuro. O visor mostra os grãos sobre os últimos 2 s. Mix em 0 deixa
 o som idêntico.
 
-Decay (0,5 s a 8 s) e Tone (escuro a brilhante) completam o reverb do Clouds. Com o Tone no
+Decay (0,5 s a 30 s) e Tone (escuro a brilhante) completam o reverb do Clouds. Com o Tone no
 máximo a cauda fica um pouco mais brilhante (cerca de 1,3 dB mais energia acima de 2 kHz) e o
 decay continua limitado a cerca de 8 s.
 
@@ -78,6 +78,22 @@ decay continua limitado a cerca de 8 s.
 
 Knobs mostram o arco vermelho no valor que realmente está sendo tocado: se um LFO ou o envelope
 modula o controle, o arco acompanha. Faders mostram a posição modulada da mesma forma.
+
+Mode (seletor no Clouds) troca o firmware:
+- **Granular:** o Clouds original, descrito acima.
+- **Pitch shift:** grãos curtos e densos lendo o áudio recente; o Pitch transpõe (ex.: +12 st = uma oitava).
+- **Looping delay:** linha de delay com feedback (Size = tempo, de 20 ms a cerca de 2 s); Freeze
+  para a entrada e repete o conteúdo em loop.
+- **Spectral:** STFT de 2048 pontos; Pitch desloca as bandas, Texture aleatoriza as fases,
+  Feedback suaviza as magnitudes e Freeze mantém o espectro. Latência de cerca de 43 ms.
+
+**Créditos e licença.** O modo **Looping delay** é uma adaptação do `looping_sample_player.h` do
+firmware do Clouds (Copyright 2014 Emilie Gillet, licença MIT, github.com/pichenettes/eurorack); o
+aviso de licença está no código. O modo **Pitch shift** é uma adaptação do WSOLA do firmware do Clouds
+(`wsola_sample_player.h`, `correlator` e `window.h`, mesma licença MIT): transposição e time
+stretch por busca de correlação. Pitch de -24 a +24 semitons; Position e Size controlam a janela. O modo **Spectral** é uma implementação própria (STFT) e não tem
+o algoritmo do firmware original, que não está no repositório. Não usamos o nome da marca Mutable
+Instruments no app.
 
 ## Limiter
 
