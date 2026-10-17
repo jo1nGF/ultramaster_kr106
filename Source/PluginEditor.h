@@ -65,6 +65,8 @@ private:
     std::unique_ptr<KR106MenuSheet> mChoiceMenu;
     KR106TouchChoice* mArpPatternBtn = nullptr;
     KR106TouchChoice* mArpShBtn = nullptr;
+    KR106TouchChoice* mArpScaleBtn = nullptr;
+    KR106TouchChoice* mArpScaleRootBtn = nullptr;
 
     // Two pages: 0 = Synth, 1 = FX (delays, Clouds, limiter, recorder)
     int mPage = 0;
@@ -81,9 +83,10 @@ private:
     KR106TouchToggle* mLimOnBtn = nullptr;
     KR106TouchToggle* mFreezeBtn = nullptr;
     KR106TouchChoice* mArpAutoBtn = nullptr;
-    KR106TouchChoice* mArpEveryBtn = nullptr;
-    KR106TouchChoice* mArpMaskBtn = nullptr;
+    void showArpAutomationMenu(juce::Rectangle<int> anchor);
     void showArpMaskMenu(juce::Rectangle<int> anchor);
+    void showCustomScaleMenu(juce::Rectangle<int> anchor);
+    void showMidiAssignmentMenu(int paramIdx, juce::Component* anchor);
     void showChoiceMenu(const juce::StringArray& names, int current,
                         juce::Rectangle<int> anchor, std::function<void(int)> onPick);
 

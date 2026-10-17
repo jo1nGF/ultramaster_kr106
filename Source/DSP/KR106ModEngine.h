@@ -4,7 +4,7 @@
 #include <algorithm>
 #include <cstdint>
 
-// Modulation sources for the matrix: two LFOs and one envelope.
+// Modulation sources for the matrix: three LFOs and one envelope.
 // Controls follow the reference screenshot (XLFO / XADSR):
 //   LFO:  waveform, RETRIG, Rate (TIME), Delay, S/H (blend to sample&hold),
 //         Smooth (SMTH), Phase, Amount (AMT). SYNC is host-tempo sync (not in this version).
@@ -139,12 +139,26 @@ private:
 
 
 // ---- matrix: sources and curated targets (choices are stored as 0..1 slider values) ----
-static constexpr int kNumModSources = 4;
-static constexpr const char* kModSourceNames[kNumModSources] = { "None", "LFO 1", "LFO 2", "Envelope" };
+static constexpr int kNumModSources = 5;
+static constexpr const char* kModSourceNames[kNumModSources] = { "None", "LFO 1", "LFO 2", "LFO 3", "Envelope" };
+// Preserve the old encoding anchors: None=0, LFO 1=1/3, LFO 2=2/3,
+// Envelope=1. LFO 3 occupies a new anchor at 5/6 so old saved routes remain valid.
+static inline float valueFromModSource(int s)
+{
+  static constexpr float values[kNumModSources] = { 0.f, 1.f / 3.f, 2.f / 3.f, 5.f / 6.f, 1.f };
+  return values[std::max(0, std::min(kNumModSources - 1, s))];
+}
 static inline int modSourceFromValue(float v)
-{ return std::max(0, std::min(kNumModSources - 1, static_cast<int>(std::round(v * (kNumModSources - 1))))); }
+{
+  v = std::max(0.f, std::min(1.f, v));
+  if (v < 1.f / 6.f) return 0;
+  if (v < 0.5f) return 1;
+  if (v < 0.75f) return 2;
+  if (v < 11.f / 12.f) return 3;
+  return 4;
+}
 
-static constexpr int kNumModTargets = 37;
+static constexpr int kNumModTargets = 69;
 // Grouped so the target menu is two short menus (group, then item)
 static constexpr const char* kModTargetNames[kNumModTargets] = {
   "VCF Freq", "VCF Res", "VCF Env", "VCF LFO", "HPF Freq", "VCA Level",
@@ -153,18 +167,48 @@ static constexpr const char* kModTargetNames[kNumModTargets] = {
   "Tape Time", "Tape Feedback", "Tape Mix", "Tape Tone", "Tape Wow",
   "Digital Time", "Digital Feedback", "Digital Mix",
   "Clouds Position", "Clouds Size", "Clouds Pitch", "Clouds Density", "Clouds Mix", "Clouds Reverb", "Clouds Decay", "Clouds Tone",
-  "Arp Rate", "Arp Swing", "Arp Gate", "Arp Ratchet", "Limiter Ceiling"
+  "Arp Rate", "Arp Swing", "Arp Gate", "Arp Ratchet", "Limiter Ceiling",
+  "LFO 1 Wave", "LFO 1 Rate", "LFO 1 Amount", "LFO 1 Delay", "LFO 1 Retrig", "LFO 1 S/H", "LFO 1 Smooth", "LFO 1 Phase",
+  "LFO 2 Wave", "LFO 2 Rate", "LFO 2 Amount", "LFO 2 Delay", "LFO 2 Retrig", "LFO 2 S/H", "LFO 2 Smooth", "LFO 2 Phase",
+  "LFO 3 Wave", "LFO 3 Rate", "LFO 3 Amount", "LFO 3 Delay", "LFO 3 Retrig", "LFO 3 S/H", "LFO 3 Smooth", "LFO 3 Phase",
+  "Mod Env Attack", "Mod Env Decay", "Mod Env S-Start", "Mod Env S-Time", "Mod Env Release", "Mod Env Amp", "Mod Env Velocity",
+  "Portamento Rate"
 };
-static constexpr int kNumModGroups = 7;
+static constexpr int kNumModGroups = 12;
 static constexpr const char* kModGroupNames[kNumModGroups] = {
-  "Filter & amp", "Oscillator & LFO", "Envelope", "Tape delay", "Digital delay", "Clouds", "Arp & limiter"
+  "Filter & amp", "Oscillator & LFO", "Envelope", "Tape delay", "Digital delay", "Clouds", "Arp & limiter",
+  "LFO 1", "LFO 2", "LFO 3", "Mod envelope", "Portamento"
 };
-static constexpr int kModGroupStart[kNumModGroups] = { 0, 6, 12, 16, 21, 24, 32 };
-static constexpr int kModGroupCount[kNumModGroups] = { 6, 6, 4, 5, 3, 8, 5 };
+static constexpr int kModGroupStart[kNumModGroups] = { 0, 6, 12, 16, 21, 24, 32, 37, 45, 53, 61, 68 };
+static constexpr int kModGroupCount[kNumModGroups] = { 6, 6, 4, 5, 3, 8, 5, 8, 8, 8, 7, 1 };
 static inline int modGroupOf(int t)
 { for (int g = 0; g < kNumModGroups; g++) if (t >= kModGroupStart[g] && t < kModGroupStart[g] + kModGroupCount[g]) return g; return 0; }
-static inline float valueFromModTarget(int t) { return static_cast<float>(t) / (kNumModTargets - 1); }
+// The 37 original target values are retained exactly (t / 36). The 32 new
+// destinations are encoded at unused midpoints so old sessions and host
+// automation continue to select the same legacy targets after this expansion.
+static inline float valueFromModTarget(int t)
+{
+  t = std::max(0, std::min(kNumModTargets - 1, t));
+  if (t < 37) return static_cast<float>(t) / 36.f;
+  return (static_cast<float>(t - 37) + 0.5f) / 36.f;
+}
 static inline int modTargetFromValue(float v)
-{ return std::max(0, std::min(kNumModTargets - 1, static_cast<int>(std::round(v * (kNumModTargets - 1))))); }
+{
+  v = std::max(0.f, std::min(1.f, v));
+  // Match stored choice anchors before nearest-neighbour decoding. A few new
+  // targets live at midpoints between legacy values, so relying on floating-
+  // point tie-breaking alone could reinterpret a saved route on some hosts.
+  for (int t = 0; t < kNumModTargets; ++t)
+    if (std::fabs(v - valueFromModTarget(t)) < 1.0e-4f) return t;
+
+  int best = 0;
+  float bestDist = std::fabs(v - valueFromModTarget(0));
+  for (int t = 1; t < kNumModTargets; ++t)
+  {
+    float dist = std::fabs(v - valueFromModTarget(t));
+    if (dist < bestDist) { best = t; bestDist = dist; }
+  }
+  return best;
+}
 
 } // namespace kr106

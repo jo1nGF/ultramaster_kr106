@@ -22,28 +22,36 @@ O APK é assinado com a chave de debug padrão, o que basta para instalar direto
 - **Keys:** botão vermelho na barra superior abre um teclado de 3 oitavas (multitoque,
   glissando, velocity pela altura do toque, Oct -/+ e bender). Fecha com Close ou arrastando
   o cabeçalho para baixo.
-- **MIDI learn:** segure o dedo (~0,5 s) em qualquer controle e mexa no controle do teclado.
-  Toque em qualquer outro controle para cancelar.
-- **Entrada numérica:** toque duplo no fader/knob (comportamento original).
+- **MIDI learn:** segure o dedo (~0,5 s) em um controle; escolha *Start MIDI Learn* e mova um controle do teclado MIDI. A mensagem de estado aparece na faixa superior, sem cobrir valores. No mesmo menu, *Remove learned CC / use default* remove a atribuição aprendida e reativa o mapeamento padrão do app.
+- **Reset de controle:** duplo toque em knobs e faders contínuos restaura o valor padrão do parâmetro.
 - **Engrenagem:** abre o menu original de ajustes (vozes, oversampling, sync etc.).
   No S10, comece com 6 vozes e VCF Oversample 2x e suba se a CPU permitir.
 
 ## Página Mod: LFOs, envelope e matriz
 
 A terceira aba **Mod** tem:
-- **LFO 1 e LFO 2** com os controles do XLFO: Wave (sine, triangle, square, saw up/down, smooth random,
+- **LFO 1, LFO 2 e LFO 3** com os controles do XLFO: Wave (sine, triangle, square, saw up/down, smooth random,
   S&H), Retrig, Rate, Delay (fade-in), S/H (mistura com sample & hold), Smooth, Phase e Amount.
   O SYNC do desenho (sincronia com o tempo do DAW) ainda não está nesta versão.
 - **Envelope** com os controles do XADSR: Attack, Decay, S-Start (nível de sustain), S-Time (tempo
   para o sustain cair a zero), Release, Amp e Velocity.
-- **Matriz** de 12 linhas: Source (None, LFO 1, LFO 2, Envelope), Target (escolhe um grupo e depois o
+- **Matriz** de 12 linhas: Source (None, LFO 1, LFO 2, LFO 3, Envelope), Target (escolhe um grupo e depois o
   destino) e Amount, um slider horizontal: arraste para a esquerda ou direita (cerca de 300 px dão o curso todo, -100 % a +100 %; cada pixel é cerca de 0,7 %). Duplo toque volta a 0 %, e segurar o dedo faz MIDI learn. A profundidade final é o amount da linha vezes o Amount do LFO.
 
-Destinos disponíveis (34, em grupos): VCF, HPF, VCA, DCO LFO/PWM/Sub/Noise, Tuning, LFO Rate,
-envelope principal, Tape delay, Digital delay, Clouds e Arp/limiter. Modos (60/106), liga/desliga
-e configurações globais não são modulados.
+Destinos disponíveis (69, em grupos): controles de filtro, amp, oscilador, envelopes, efeitos e arpejador,
+além de todos os controles dos três LFOs, todos os parâmetros do envelope de modulação e a taxa de
+portamento. Assim, uma rota pode modular inclusive outro modulador (a atualização da matriz tem atraso
+de um bloco para evitar ciclos recursivos). Modos (60/106), liga/desliga e configurações globais não são modulados.
 
 Os controles da página Mod são globais (não entram nos presets) e fazem parte do estado salvo.
+
+
+## Alterações da versão touch
+
+Os novos parâmetros foram acrescentados depois dos IDs antigos para não deslocar os endereços
+existentes de automação e estado. Os controles de modulação e do arpejador são globais e ficam no
+estado salvo. Ao abrir estados ou presets antigos, os parâmetros que não existiam nessa versão usam
+os defaults do parâmetro.
 
 ## Páginas: Synth e FX
 
@@ -54,8 +62,10 @@ envelope, chorus e arpejador. FX: tape delay, delay digital, limiter, gravador d
 
 - **Swing:** atrasa os passos pares (50% a 75%). **Gate:** duração da nota (10% a 100%).
   **Ratchet:** 1 a 4 repetições por passo. **Chord:** toca todas as notas juntas a cada passo
-  (o Range espalha o acorde pelas oitavas). Swing, gate e ratchet valem para o relógio interno
-  (não para o transporte de um DAW).
+  (o Range espalha o acorde pelas oitavas). **Strum** espalha as notas do acorde ao longo do passo;
+  **Prob** define a chance de cada passo disparar. **Scale** quantiza as notas para Off, Major, Minor,
+  Harmonic minor, pentatônicas, Blues, Dorian ou Custom; **Root** escolhe a tônica e Custom permite
+  marcar cada semitom da escala. Swing, gate e ratchet valem para o relógio interno (não para o transporte de um DAW).
 - **Automação dos tipos (Auto pattern):** o padrão muda sozinho a cada N passos
   (*Change every*: 4 a 64). Modos: Cycle (próximo da lista), Random e Ping-pong (vai e volta).
   *Patterns used* escolhe quais padrões entram (toque para marcar/desmarcar). Com a automação

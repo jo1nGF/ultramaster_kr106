@@ -283,9 +283,11 @@ KR106Editor::KR106Editor(KR106AudioProcessor& p)
         sw3(kArpMode, 3, x0 + 142, ty, "Mode", 100);
         sw3(kArpRange, 3, x0 + 182, ty, "Range", 100);
 
-        knob(kArpSwing,   x0 + 252, ty + 60, "Swing",   1.5f);
-        knob(kArpGate,    x0 + 302, ty + 60, "Gate",    1.5f);
-        knob(kArpRatchet, x0 + 352, ty + 60, "Ratchet", 1.5f);
+        knob(kArpSwing,   x0 + 252, ty + 60, "Swing",  1.25f);
+        knob(kArpGate,    x0 + 298, ty + 60, "Gate",   1.25f);
+        knob(kArpRatchet, x0 + 344, ty + 60, "Rat",    1.25f);
+        knob(kArpStrum,   x0 + 390, ty + 60, "Strum",  1.20f);
+        knob(kArpProbability, x0 + 436, ty + 60, "Prob", 1.20f);
         mArpChordBtn = add(new KR106TouchToggle("Chord", param(kArpChord)), x0 + wB[3] - 54, ty + 2, 48, 16);
         mLearnableParams.push_back(kArpChord);
         mLearnableControls.push_back({ kArpChord, mArpChordBtn });
@@ -318,38 +320,54 @@ KR106Editor::KR106Editor(KR106AudioProcessor& p)
                                mArpShBtn->refresh(); });
         }), x0 + 166, ty + 112, 70, 30);
 
-        // pattern automation: Auto (off / cycle / random / ping-pong), Every N steps, which patterns
-        const int ax = x0 + wB[3] - 92;
-        mArpAutoBtn = add(new KR106TouchChoice("Auto pattern",
-            [this]() { return juce::String(kr106::kAutoModeNames[kr106::autoModeFromValue(mProcessor.getParam(kArpAutoMode)->getValue())]); },
-            [this, ax, ty]() {
-                juce::StringArray names;
-                for (int i = 0; i < kr106::kNumAutoModes; i++) names.add(kr106::kAutoModeNames[i]);
-                showChoiceMenu(names, kr106::autoModeFromValue(mProcessor.getParam(kArpAutoMode)->getValue()),
-                               { ax, ty + 24, 84, 34 },
-                               [this](int idx) {
-                                   mProcessor.getParam(kArpAutoMode)->setValueNotifyingHost(kr106::valueFromAutoMode(idx));
-                                   mArpAutoBtn->refresh(); });
-            }), ax, ty + 24, 84, 34);
-        mArpEveryBtn = add(new KR106TouchChoice("Change every",
-            [this]() { return juce::String(kr106::kAutoEverySteps[kr106::autoEveryFromValue(mProcessor.getParam(kArpAutoEvery)->getValue())]) + " steps"; },
-            [this, ax, ty]() {
-                juce::StringArray names;
-                for (int i = 0; i < kr106::kNumAutoEvery; i++) names.add(juce::String(kr106::kAutoEverySteps[i]) + " steps");
-                showChoiceMenu(names, kr106::autoEveryFromValue(mProcessor.getParam(kArpAutoEvery)->getValue()),
-                               { ax, ty + 64, 84, 34 },
-                               [this](int idx) {
-                                   mProcessor.getParam(kArpAutoEvery)->setValueNotifyingHost(kr106::valueFromAutoEvery(idx));
-                                   mArpEveryBtn->refresh(); });
-            }), ax, ty + 64, 84, 34);
-        mArpMaskBtn = add(new KR106TouchChoice("Patterns used",
+        // Scale quantization uses a preset scale or an editable pitch-class mask.
+        static const char* scaleNames[] = { "Off", "Major", "Minor", "Harmonic min", "Major pent", "Minor pent", "Blues", "Dorian", "Custom" };
+        mArpScaleBtn = add(new KR106TouchChoice("Scale",
             [this]() {
-                int m = kr106::autoMaskFromValue(mProcessor.getParam(kArpAutoMask)->getValue()), n = 0;
-                for (int i = 0; i < kr106::kNumArpPatterns; i++) if (m & (1 << i)) n++;
-                return juce::String(n) + " of " + juce::String(kr106::kNumArpPatterns);
+                const int v = juce::roundToInt(mProcessor.getParam(kArpScale)->convertFrom0to1(mProcessor.getParam(kArpScale)->getValue()));
+                return juce::String(scaleNames[juce::jlimit(0, 8, v)]);
             },
-            [this, ax, ty]() { showArpMaskMenu({ ax, ty + 104, 84, 34 }); }),
-            ax, ty + 104, 84, 34);
+            [this, x0, ty]() {
+                juce::StringArray names;
+                for (const char* s : scaleNames) names.add(s);
+                const int cur = juce::roundToInt(mProcessor.getParam(kArpScale)->convertFrom0to1(mProcessor.getParam(kArpScale)->getValue()));
+                showChoiceMenu(names, cur, { x0 + 242, ty + 110, 80, 30 },
+                    [this, x0, ty](int idx) {
+                        mProcessor.getParam(kArpScale)->setValueNotifyingHost(mProcessor.getParam(kArpScale)->convertTo0to1((float)idx));
+                        if (mArpScaleBtn) mArpScaleBtn->refresh();
+                        if (idx == 8) showCustomScaleMenu({ x0 + 242, ty + 142, 80, 24 });
+                    });
+            }), x0 + 242, ty + 112, 80, 30);
+
+        static const char* rootNames[] = { "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B" };
+        mArpScaleRootBtn = add(new KR106TouchChoice("Root",
+            [this]() {
+                const int v = juce::roundToInt(mProcessor.getParam(kArpScaleRoot)->convertFrom0to1(mProcessor.getParam(kArpScaleRoot)->getValue()));
+                return juce::String(rootNames[juce::jlimit(0, 11, v)]);
+            },
+            [this, x0, ty]() {
+                juce::StringArray names;
+                for (const char* s : rootNames) names.add(s);
+                const int cur = juce::roundToInt(mProcessor.getParam(kArpScaleRoot)->convertFrom0to1(mProcessor.getParam(kArpScaleRoot)->getValue()));
+                showChoiceMenu(names, cur, { x0 + 326, ty + 110, 52, 30 },
+                    [this](int idx) {
+                        mProcessor.getParam(kArpScaleRoot)->setValueNotifyingHost(mProcessor.getParam(kArpScaleRoot)->convertTo0to1((float)idx));
+                        if (mArpScaleRootBtn) mArpScaleRootBtn->refresh();
+                    });
+            }), x0 + 326, ty + 112, 52, 30);
+
+        // Pattern automation is opened from a single compact menu in the bottom row.
+        // Keeping this control out of the knob lane prevents it overlapping Strum/Prob.
+        const int ax = x0 + wB[3] - 92;
+        mArpAutoBtn = add(new KR106TouchChoice("Automation",
+            [this]() {
+                const int mode = kr106::autoModeFromValue(mProcessor.getParam(kArpAutoMode)->getValue());
+                static const char* shortNames[] = { "Off", "Cycle", "Random", "Ping-pong" };
+                return juce::String("Auto: ") + shortNames[juce::jlimit(0, kr106::kNumAutoModes - 1, mode)];
+            },
+            [this, ax, ty]() { showArpAutomationMenu({ ax, ty + 112, 84, 30 }); }),
+            ax, ty + 112, 84, 30);
+
     }
 
     // =====================================================================
@@ -437,47 +455,47 @@ KR106Editor::KR106Editor(KR106AudioProcessor& p)
     for (int i = firstFxChild; i < lastFxChild; i++) mPageCtrls[1].push_back(mContent.getChildComponent(i));
     curPage = 0;
     // =====================================================================
-    // PAGE 3: MOD  (2 LFOs and an envelope with the XLFO / XADSR controls, 12-slot matrix)
+    // PAGE 3: MOD  (3 LFOs, envelope and 12-slot modulation matrix)
     // =====================================================================
     curPage = 2;
     const int firstModChild = mContent.getNumChildComponents();
-    for (int l = 0; l < 2; l++)                                    // LFO 1 (x 8) and LFO 2 (x 276)
+    for (int l = 0; l < 3; l++)                                    // three compact LFO tiles
     {
-      const int x0 = (l == 0) ? 8 : 276, ty = kRowA;
-      const int b = (l == 0) ? kLfo1Wave : kLfo2Wave;
-      tile(l == 0 ? "LFO 1" : "LFO 2", x0, ty, 262, false);
-      add(new KR106ModLed(&mProcessor, l + 1, true), x0 + 236, ty + 3, 15, 15);
+      const int x0 = 8 + l * 204, ty = kRowA;
+      const int base = l == 0 ? kLfo1Wave : (l == 1 ? kLfo2Wave : kLfo3Wave);
+      tile(l == 0 ? "LFO 1" : (l == 1 ? "LFO 2" : "LFO 3"), x0, ty, 198, false);
+      add(new KR106ModLed(&mProcessor, l + 1, true), x0 + 174, ty + 3, 15, 15);
       mModChoices.push_back(add(new KR106TouchChoice("Wave",
-          [this, b]() { return juce::String(kr106::kModWaveNames[kr106::modWaveFromValue(mProcessor.getParam(b)->getValue())]); },
-          [this, b, x0, ty]() {
+          [this, base]() { return juce::String(kr106::kModWaveNames[kr106::modWaveFromValue(mProcessor.getParam(base)->getValue())]); },
+          [this, base, x0, ty]() {
             juce::StringArray names;
             for (int i = 0; i < kr106::kNumModWaves; i++) names.add(kr106::kModWaveNames[i]);
-            showChoiceMenu(names, kr106::modWaveFromValue(mProcessor.getParam(b)->getValue()), { x0 + 8, ty + 52, 104, 26 },
-                           [this, b](int idx) { mProcessor.getParam(b)->setValueNotifyingHost(kr106::valueFromModWave(idx)); });
-          }), x0 + 8, ty + 26, 104, 24));
-      auto* rt = new KR106TouchToggle("Retrig", param(b + 4));
-      add(rt, x0 + 124, ty + 30, 74, 18);
-      mLearnableParams.push_back(b + 4);
-      mLearnableControls.push_back({ b + 4, rt });
+            showChoiceMenu(names, kr106::modWaveFromValue(mProcessor.getParam(base)->getValue()), { x0 + 6, ty + 52, 86, 26 },
+                           [this, base](int idx) { mProcessor.getParam(base)->setValueNotifyingHost(kr106::valueFromModWave(idx)); });
+          }), x0 + 6, ty + 26, 84, 24));
+      auto* rt = new KR106TouchToggle("Retrig", param(base + 4));
+      add(rt, x0 + 96, ty + 30, 68, 18);
+      mLearnableParams.push_back(base + 4);
+      mLearnableControls.push_back({ base + 4, rt });
       // rows as in the reference: Rate (TIME), Delay, S/H ; Smooth (SMTH), Phase, Amount (AMT)
-      knob(b + 1, x0 + 36,  ty + 72,  "Rate",   1.4f);
-      knob(b + 3, x0 + 131, ty + 72,  "Delay",  1.4f);
-      knob(b + 5, x0 + 226, ty + 72,  "S/H",    1.4f);
-      knob(b + 6, x0 + 36,  ty + 124, "Smooth", 1.4f);
-      knob(b + 7, x0 + 131, ty + 124, "Phase",  1.4f);
-      knob(b + 2, x0 + 226, ty + 124, "Amount", 1.4f);
+      knob(base + 1, x0 + 22,  ty + 72,  "Rate",   1.15f);
+      knob(base + 3, x0 + 96,  ty + 72,  "Delay",  1.15f);
+      knob(base + 5, x0 + 170, ty + 72,  "S/H",    1.15f);
+      knob(base + 6, x0 + 22,  ty + 124, "Smooth", 1.15f);
+      knob(base + 7, x0 + 96,  ty + 124, "Phase",  1.15f);
+      knob(base + 2, x0 + 170, ty + 124, "Amount", 1.15f);
     }
     {   // ENVELOPE (XADSR controls): Attack, Decay, S-Start, S-Time, Release, Amp, Velocity
-      const int x0 = 544, ty = kRowA, cy = ty + 72;
-      tile("Envelope", x0, ty, 322, false);
-      add(new KR106ModLed(&mProcessor, 3, false), x0 + 300, ty + 3, 15, 15);
-      knob(kModEnvAtt,    x0 + 24,  cy, "Attack",   1.3f);
-      knob(kModEnvDec,    x0 + 70,  cy, "Decay",    1.3f);
-      knob(kModEnvSStart, x0 + 116, cy, "S-Start",  1.3f);
-      knob(kModEnvSTime,  x0 + 162, cy, "S-Time",   1.3f);
-      knob(kModEnvRel,    x0 + 208, cy, "Release",  1.3f);
-      knob(kModEnvAmp,    x0 + 254, cy, "Amp",      1.3f);
-      knob(kModEnvVel,    x0 + 300, cy, "Velocity", 1.3f);
+      const int x0 = 620, ty = kRowA, cy = ty + 72;
+      tile("Mod Env", x0, ty, 242, false);
+      add(new KR106ModLed(&mProcessor, 4, false), x0 + 220, ty + 3, 15, 15);
+      knob(kModEnvAtt,    x0 + 18,  cy, "A",   1.0f);
+      knob(kModEnvDec,    x0 + 52,  cy, "D",   1.0f);
+      knob(kModEnvSStart, x0 + 86,  cy, "S",   1.0f);
+      knob(kModEnvSTime,  x0 + 120, cy, "Time",1.0f);
+      knob(kModEnvRel,    x0 + 154, cy, "R",   1.0f);
+      knob(kModEnvAmp,    x0 + 188, cy, "Amp", 1.0f);
+      knob(kModEnvVel,    x0 + 222, cy, "Vel", 1.0f);
     }
     for (int col = 0; col < 2; col++)                              // MATRIX: 12 slots, two columns of six
     {
@@ -493,7 +511,7 @@ KR106Editor::KR106Editor(KR106AudioProcessor& p)
               juce::StringArray names;
               for (int k = 0; k < kr106::kNumModSources; k++) names.add(kr106::kModSourceNames[k]);
               showChoiceMenu(names, kr106::modSourceFromValue(mProcessor.getParam(pS)->getValue()), { x0 + 6, y, 66, 20 },
-                             [this, pS](int k) { mProcessor.getParam(pS)->setValueNotifyingHost(k / static_cast<float>(kr106::kNumModSources - 1)); });
+                             [this, pS](int k) { mProcessor.getParam(pS)->setValueNotifyingHost(kr106::valueFromModSource(k)); });
             }), x0 + 6, y, 66, 20));
         mModChoices.push_back(add(new KR106TouchChoice("Target",
             [this, pT]() { return juce::String(kr106::kModTargetNames[kr106::modTargetFromValue(mProcessor.getParam(pT)->getValue())]); },
@@ -524,9 +542,7 @@ KR106Editor::KR106Editor(KR106AudioProcessor& p)
         for (auto& lc : mLearnableControls)
             if (lc.ctrl == c)
             {
-                mProcessor.startMidiLearn(lc.paramIdx);
-                c->repaint();
-                mTooltip.showText("MIDI learn: move a control on your keyboard", c);
+                showMidiAssignmentMenu(lc.paramIdx, c);
                 return true;
             }
         return false;
@@ -1393,6 +1409,60 @@ void KR106Editor::showModTargetMenu(int row, juce::Rectangle<int> anchor)
         });
 }
 
+void KR106Editor::showArpAutomationMenu(juce::Rectangle<int> anchor)
+{
+    if (mChoiceMenu) return;
+    const int mode = kr106::autoModeFromValue(mProcessor.getParam(kArpAutoMode)->getValue());
+    const int every = kr106::autoEveryFromValue(mProcessor.getParam(kArpAutoEvery)->getValue());
+    const int mask = kr106::autoMaskFromValue(mProcessor.getParam(kArpAutoMask)->getValue());
+    int patterns = 0;
+    for (int i = 0; i < kr106::kNumArpPatterns; ++i)
+        if ((mask & (1 << i)) != 0) ++patterns;
+
+    std::vector<KR106MenuItem> items;
+    items.push_back(KR106MenuItem::makeAction(1, "Mode: " + juce::String(kr106::kAutoModeNames[mode])));
+    items.push_back(KR106MenuItem::makeAction(2, "Change every: " + juce::String(kr106::kAutoEverySteps[every]) + " steps"));
+    items.push_back(KR106MenuItem::makeAction(3, "Patterns used: " + juce::String(patterns) + " of " + juce::String(kr106::kNumArpPatterns)));
+    mChoiceMenu = std::make_unique<KR106MenuSheet>(std::move(items), mMenuTypeface,
+        [this, anchor](int id)
+        {
+            if (id == 0) { mChoiceMenu.reset(); if (mArpAutoBtn) mArpAutoBtn->refresh(); return; }
+            mChoiceMenu.reset();
+            if (id == 1)
+            {
+                juce::StringArray names;
+                for (int i = 0; i < kr106::kNumAutoModes; ++i) names.add(kr106::kAutoModeNames[i]);
+                const int current = kr106::autoModeFromValue(mProcessor.getParam(kArpAutoMode)->getValue());
+                showChoiceMenu(names, current, anchor,
+                    [this](int idx) {
+                        mProcessor.getParam(kArpAutoMode)->setValueNotifyingHost(kr106::valueFromAutoMode(idx));
+                        if (mArpAutoBtn) mArpAutoBtn->refresh();
+                    });
+            }
+            else if (id == 2)
+            {
+                juce::StringArray names;
+                for (int i = 0; i < kr106::kNumAutoEvery; ++i)
+                    names.add(juce::String(kr106::kAutoEverySteps[i]) + " steps");
+                const int current = kr106::autoEveryFromValue(mProcessor.getParam(kArpAutoEvery)->getValue());
+                showChoiceMenu(names, current, anchor,
+                    [this](int idx) {
+                        mProcessor.getParam(kArpAutoEvery)->setValueNotifyingHost(kr106::valueFromAutoEvery(idx));
+                        if (mArpAutoBtn) mArpAutoBtn->refresh();
+                    });
+            }
+            else if (id == 3)
+            {
+                showArpMaskMenu(anchor);
+            }
+        });
+    const int menuW = mChoiceMenu->calcWidth(), menuH = mChoiceMenu->calcHeight();
+    const int menuX = juce::jlimit(0, juce::jmax(0, kBaseWidth - menuW), anchor.getX() + anchor.getWidth() - menuW);
+    const int menuY = juce::jlimit(0, juce::jmax(0, kBaseHeight - menuH), anchor.getY() - menuH + anchor.getHeight());
+    mContent.addAndMakeVisible(mChoiceMenu.get());
+    mChoiceMenu->showAt({ menuX, menuY, menuW, menuH });
+}
+
 void KR106Editor::showArpMaskMenu(juce::Rectangle<int> anchor)
 {
     if (mChoiceMenu) return;
@@ -1403,17 +1473,81 @@ void KR106Editor::showArpMaskMenu(juce::Rectangle<int> anchor)
     mChoiceMenu = std::make_unique<KR106MenuSheet>(std::move(items), mMenuTypeface,
         [this](int id)
         {
-            if (id == 0) { mChoiceMenu.reset(); if (mArpMaskBtn) mArpMaskBtn->refresh(); return; }   // dismissed
+            if (id == 0) { mChoiceMenu.reset(); if (mArpAutoBtn) mArpAutoBtn->refresh(); return; }   // dismissed
             // toggle one pattern in the automation set; the menu stays open for more taps
             int m = kr106::autoMaskFromValue(mProcessor.getParam(kArpAutoMask)->getValue());
             m ^= (1 << (id - 1));
             if (m == 0) m = 1 << (id - 1);                              // never leave the set empty
             mProcessor.getParam(kArpAutoMask)->setValueNotifyingHost(kr106::valueFromAutoMask(m));
-            if (mArpMaskBtn) mArpMaskBtn->refresh();
+            if (mArpAutoBtn) mArpAutoBtn->refresh();
         });
     int menuW = mChoiceMenu->calcWidth(), menuH = mChoiceMenu->calcHeight();
     int menuX = juce::jlimit(0, juce::jmax(0, kBaseWidth - menuW), anchor.getX() + anchor.getWidth() - menuW);
     int menuY = juce::jlimit(0, juce::jmax(0, kBaseHeight - menuH), anchor.getY() - menuH + anchor.getHeight());
+    mContent.addAndMakeVisible(mChoiceMenu.get());
+    mChoiceMenu->showAt({ menuX, menuY, menuW, menuH });
+}
+
+void KR106Editor::showCustomScaleMenu(juce::Rectangle<int> anchor)
+{
+    if (mChoiceMenu) return;
+    static const char* notes[] = { "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B" };
+    auto* rootParam = mProcessor.getParam(kArpScaleRoot);
+    const int root = juce::roundToInt(rootParam->convertFrom0to1(rootParam->getValue())) % 12;
+    auto* maskParam = mProcessor.getParam(kArpCustomScale);
+    const int mask = juce::roundToInt(maskParam->convertFrom0to1(maskParam->getValue()));
+    std::vector<KR106MenuItem> items;
+    // The mask stores semitone intervals from the selected root, so show the
+    // resulting note names here rather than misleading fixed C-based labels.
+    for (int i = 0; i < 12; ++i)
+        items.push_back(KR106MenuItem::item(i + 1, notes[(root + i) % 12], true, (mask & (1 << i)) != 0));
+    mChoiceMenu = std::make_unique<KR106MenuSheet>(std::move(items), mMenuTypeface,
+        [this](int id)
+        {
+            if (id == 0) { mChoiceMenu.reset(); return; }
+            auto* p = mProcessor.getParam(kArpCustomScale);
+            int maskNow = juce::roundToInt(p->convertFrom0to1(p->getValue()));
+            const int newMask = maskNow ^ (1 << (id - 1));
+            if (newMask != 0) p->setValueNotifyingHost(p->convertTo0to1((float)newMask));
+            if (mArpScaleBtn) mArpScaleBtn->refresh();
+        });
+    const int menuW = mChoiceMenu->calcWidth(), menuH = mChoiceMenu->calcHeight();
+    const int menuX = juce::jlimit(0, juce::jmax(0, kBaseWidth - menuW), anchor.getX());
+    const int menuY = juce::jlimit(0, juce::jmax(0, kBaseHeight - menuH), anchor.getY() - menuH + anchor.getHeight());
+    mContent.addAndMakeVisible(mChoiceMenu.get());
+    mChoiceMenu->showAt({ menuX, menuY, menuW, menuH });
+}
+
+void KR106Editor::showMidiAssignmentMenu(int paramIdx, juce::Component* anchor)
+{
+    if (mChoiceMenu || !anchor || paramIdx < 0 || paramIdx >= kNumParams) return;
+    const bool hasLearnedCC = mProcessor.mParamCC[paramIdx] >= 0;
+    std::vector<KR106MenuItem> items;
+    items.push_back(KR106MenuItem::makeAction(1, "Start MIDI Learn"));
+    items.push_back(KR106MenuItem::item(2, "Remove learned CC / use default", hasLearnedCC));
+    mChoiceMenu = std::make_unique<KR106MenuSheet>(std::move(items), mMenuTypeface,
+        [this, paramIdx, anchor](int id)
+        {
+            mChoiceMenu.reset();
+            if (id == 1)
+            {
+                mProcessor.startMidiLearn(paramIdx);
+                anchor->repaint();
+                mTooltip.showText("MIDI Learn: move a control on your keyboard", anchor);
+            }
+            else if (id == 2)
+            {
+                mProcessor.clearMidiLearn(paramIdx); // removes override; hardcoded default map becomes active again
+                anchor->repaint();
+                mTooltip.showText("CC mapping removed; default restored", anchor);
+            }
+        });
+    auto bounds = mContent.getLocalArea(anchor, anchor->getLocalBounds());
+    const int menuW = mChoiceMenu->calcWidth(), menuH = mChoiceMenu->calcHeight();
+    const int menuX = juce::jlimit(0, juce::jmax(0, kBaseWidth - menuW), bounds.getX());
+    int menuY = bounds.getBottom() + 2;
+    if (menuY + menuH > kBaseHeight) menuY = bounds.getY() - menuH - 2;
+    menuY = juce::jlimit(0, juce::jmax(0, kBaseHeight - menuH), menuY);
     mContent.addAndMakeVisible(mChoiceMenu.get());
     mChoiceMenu->showAt({ menuX, menuY, menuW, menuH });
 }
@@ -1465,6 +1599,8 @@ void KR106Editor::timerCallback()
         mArpShBtn->setEnabledLook(kr106::patternFromValue(mProcessor.getParam(kArpPattern)->getValue()) == kr106::kPatRandomSH);
         mArpShBtn->refresh();
     }
+    if (mArpScaleBtn) mArpScaleBtn->refresh();
+    if (mArpScaleRootBtn) mArpScaleRootBtn->refresh();
 #endif
 
     bool active = mProcessor.getParam(kPower)->getValue() > 0.5f
@@ -1509,7 +1645,7 @@ void KR106Editor::timerCallback()
         int learnedCC = mProcessor.mMidiLearnResult.exchange(-1, std::memory_order_acquire);
         if (learnedCC >= 0)
         {
-            mTooltip.setLine2("CC " + juce::String(learnedCC));
+            mTooltip.setText("MIDI CC " + juce::String(learnedCC) + " learned");
             mTooltip.update();
             mProcessor.saveGlobalSettings();
         }

@@ -259,48 +259,18 @@ public:
 
     void mouseDoubleClick(const juce::MouseEvent& /*e*/) override
     {
+        // Touch convention: double tap restores the parameter's own default value.
         if (!mParam) return;
         if (mEditor) dismissEdit();
         if (mTooltip) mTooltip->hide();
-
-        auto* parent = mTooltip ? mTooltip->getParentComponent() : getTopLevelComponent();
-        if (!parent) return;
-
-        mEditor = std::make_unique<juce::TextEditor>();
-        mEditor->setLookAndFeel(&getEditBoxLnF());
-        mEditor->setFont(juce::FontOptions(11.f));
-        mEditor->setColour(juce::TextEditor::backgroundColourId, juce::Colour(0, 0, 0));
-        mEditor->setColour(juce::TextEditor::textColourId, juce::Colour(255, 255, 255));
-        mEditor->setColour(juce::TextEditor::outlineColourId, juce::Colour(128, 128, 128));
-        mEditor->setColour(juce::TextEditor::focusedOutlineColourId, juce::Colour(128, 128, 128));
-        mEditor->setColour(juce::TextEditor::highlightColourId, juce::Colour(80, 80, 80));
-        mEditor->setJustification(juce::Justification::centred);
-
-        juce::String displayText = mParam->getCurrentValueAsText();
-        mEditor->setText(displayText, false);
-
-        auto srcBounds = parent->getLocalArea(getParentComponent(), getBounds());
-        juce::Font font{juce::FontOptions(11.f)};
-        juce::GlyphArrangement glyphs;
-        glyphs.addLineOfText(font, displayText, 0.f, 0.f);
-        int tw = std::max(50, juce::roundToInt(glyphs.getBoundingBox(0, -1, false).getWidth()) + 16);
-        int th = 16;
-        int tx = srcBounds.getCentreX() - tw / 2;
-        int ty = srcBounds.getBottom() + 2;
-        auto pb = parent->getLocalBounds();
-        tx = juce::jlimit(0, pb.getWidth() - tw, tx);
-        ty = juce::jmin(pb.getHeight() - th, ty);
-        mEditor->setBounds(tx, ty, tw, th);
-
-        parent->addAndMakeVisible(mEditor.get());
-        mEditor->grabKeyboardFocus();
-
-        int numEnd = findNumericEnd(displayText);
-        mEditor->setHighlightedRegion(juce::Range<int>(0, numEnd));
-
-        mEditor->onReturnKey = [this]() { commitEdit(); };
-        mEditor->onEscapeKey = [this]() { dismissEdit(); };
-        mEditor->onFocusLost = [this]() { dismissEdit(); };
+        const float def = mParam->getDefaultValue(); // JUCE parameter defaults are normalized 0..1
+        mParam->beginChangeGesture();
+        mParam->setValueNotifyingHost(def);
+        mParam->endChangeGesture();
+        mAccumVal = def;
+        mLastRawDelta = 0.f;
+        mInSnapZone = false;
+        repaint();
     }
 
     void mouseUp(const juce::MouseEvent& e) override

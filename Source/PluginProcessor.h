@@ -50,8 +50,10 @@ enum EParams
   kLimOn, kLimCeil, kLimRel,
   // Clouds (granular)
   kCldPos, kCldSize, kCldPitch, kCldDens, kCldTex, kCldSpread, kCldFb, kCldRev, kCldMix, kCldFreeze,
-  kModFirst,   // modulation block: 2 LFOs, envelope, 12-slot matrix (global, not in presets)
-  kNumParams = kModFirst + 62
+  kModFirst,   // modulation block: LFO 1/2, envelope, 12-slot matrix and Clouds controls
+  // Appended parameters must remain after the original kModFirst+62 block to
+  // preserve every saved preset / automation ID from earlier releases.
+  kNumParams = kModFirst + 75
 };
 
 // Offsets into the modulation block (see KR106ModEngine.h for what each control does)
@@ -68,6 +70,12 @@ constexpr int kModRouteBase = kModFirst + 23;     // 12 rows x (source, target, 
 constexpr int kModRows = 12;
 constexpr int kCldDecay = kModFirst + 59, kCldTone = kModFirst + 60;   // Clouds reverb decay (0.5..30 s) and tone
 constexpr int kCldMode = kModFirst + 61;                              // Clouds firmware (0 granular, 1 pitch shift, 2 looping delay, 3 spectral)
+// New controls are appended, never inserted into the legacy modulation block.
+constexpr int kLfo3Wave = kModFirst + 62, kLfo3Rate = kModFirst + 63, kLfo3Amt = kModFirst + 64,
+              kLfo3Delay = kModFirst + 65, kLfo3Retrig = kModFirst + 66, kLfo3SH = kModFirst + 67,
+              kLfo3Smooth = kModFirst + 68, kLfo3Phase = kModFirst + 69;
+constexpr int kArpStrum = kModFirst + 70, kArpProbability = kModFirst + 71, kArpScale = kModFirst + 72,
+              kArpScaleRoot = kModFirst + 73, kArpCustomScale = kModFirst + 74;
 
 class KR106AudioProcessor : public juce::AudioProcessor
 {
@@ -162,15 +170,15 @@ public:
   // Keyboard held-note display (audio thread writes, UI timer reads)
   std::bitset<128> mKeyboardHeld;
 
-  // Modulation matrix: sources (LFO 1, LFO 2, envelope) -> curated parameters
+  // Modulation matrix: sources (LFO 1/2/3, envelope) -> curated parameters
   void applyModulation(int nFrames, const juce::MidiBuffer& midi);
-  kr106::ModLFO mModLfo[2];
+  kr106::ModLFO mModLfo[3];
   kr106::ModEnv mModEnv;
   uint32_t mSeenOns = 0, mSeenOffs = 0;
-  std::atomic<float> mModSrcLast[4] {{0.f}, {0.f}, {0.f}, {0.f}};   // LFO 1, LFO 2, envelope: last values for the LEDs
+  std::atomic<float> mModSrcLast[5] {{0.f}, {0.f}, {0.f}, {0.f}, {0.f}}; // None, LFO 1/2/3, envelope
   // Value a control should show: the modulated value while the matrix drives it, else the user value
   float modDisplayValue(int p) const { return (p >= 0 && p < kNumParams && mModActive[p]) ? mModSent[p] : (mParams[p] ? mParams[p]->getValue() : 0.f); }
-  float getModSourceValue(int s) const { return (s >= 0 && s < 4) ? mModSrcLast[s].load(std::memory_order_relaxed) : 0.f; }
+  float getModSourceValue(int s) const { return (s >= 0 && s < 5) ? mModSrcLast[s].load(std::memory_order_relaxed) : 0.f; }
   float mModSent[kNumParams] = {};
   bool  mModActive[kNumParams] = {};
 
