@@ -59,6 +59,7 @@ target_sources(KR106 PRIVATE
     Source/Controls/KR106MenuSheet.h
     Source/Controls/KR106LearnBar.h
     Source/Controls/KR106ScaleSheet.h
+    Source/Controls/KR106ModEnvDisplay.h
     Source/Controls/KR106Knob.h
     Source/Controls/KR106Misc.h
     Source/Controls/KR106PresetDisplay.h
@@ -171,6 +172,7 @@ if(APPLE)
         Source/Controls/KR106MenuSheet.h
         Source/Controls/KR106LearnBar.h
         Source/Controls/KR106ScaleSheet.h
+        Source/Controls/KR106ModEnvDisplay.h
         Source/Controls/KR106Knob.h
         Source/Controls/KR106Misc.h
         Source/Controls/KR106PresetDisplay.h

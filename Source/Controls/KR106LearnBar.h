@@ -2,8 +2,9 @@
 
 // MIDI learn bar (touch UI). Lives in its own strip at the bottom of the window, so it never
 // covers a control, a label or a parameter value. While a control is waiting for a CC it shows
-// what to do; afterwards it shows the assigned CC. "Remove CC" deletes the CC the user assigned,
-// so the factory CC of that control (if it has one) applies again.
+// what to do; afterwards it shows the assigned CC. Two buttons are always there:
+//   Remove CC   - the control answers to no CC at all (not even its factory one)
+//   Default CC  - forget the user's CC: the factory CC of that control (if it has one) applies again
 
 #include <juce_gui_basics/juce_gui_basics.h>
 #include "KR106TouchKeys.h"
@@ -15,9 +16,11 @@ public:
   explicit KR106LearnBar(KR106AudioProcessor& p)
     : mProc(p),
       mRemove("Remove CC", [this]() { onRemove(); }, juce::Colour(0xff6a1818)),
+      mDefault("Default CC", [this]() { onDefault(); }),
       mClose("Cancel", [this]() { onClose(); })
   {
     addAndMakeVisible(mRemove);
+    addAndMakeVisible(mDefault);
     addAndMakeVisible(mClose);
     setVisible(false);
   }
@@ -25,9 +28,11 @@ public:
   void resized() override
   {
     auto r = getLocalBounds().reduced(3);
-    mClose.setBounds(r.removeFromRight(78));
+    mClose.setBounds(r.removeFromRight(72));
     r.removeFromRight(4);
-    mRemove.setBounds(r.removeFromRight(104));
+    mDefault.setBounds(r.removeFromRight(100));
+    r.removeFromRight(4);
+    mRemove.setBounds(r.removeFromRight(100));
   }
 
   // Call from the editor timer (and right after a long press starts the learn)
@@ -40,7 +45,7 @@ public:
     }
     else if (mState == Waiting)
       setState(Hidden);
-    else if ((mState == Assigned || mState == Removed) && juce::Time::getMillisecondCounter() > mDeadline)
+    else if ((mState == Assigned || mState == Removed || mState == Defaulted) && juce::Time::getMillisecondCounter() > mDeadline)
       setState(Hidden);
   }
 
@@ -63,12 +68,12 @@ public:
     const auto text = message();
     g.setColour(juce::Colours::white);
     g.setFont(juce::FontOptions(13.f));
-    auto area = getLocalBounds().withTrimmedLeft(10).withTrimmedRight(mRemove.isVisible() ? 192 : 90);
+    auto area = getLocalBounds().withTrimmedLeft(10).withTrimmedRight(286);
     g.drawFittedText(text, area, juce::Justification::centredLeft, 1, 0.75f);
   }
 
 private:
-  enum State { Hidden, Waiting, Assigned, Removed };
+  enum State { Hidden, Waiting, Assigned, Removed, Defaulted };
 
   juce::String paramName() const
   {
@@ -80,24 +85,22 @@ private:
   {
     const int user = mProc.hasUserCC(mParamIdx) ? mProc.getCCForParam(mParamIdx) : -1;
     const int fact = mProc.getDefaultCCForParam(mParamIdx);
+    const bool off = mProc.isMidiCCDisabled(mParamIdx);
     switch (mState)
     {
       case Waiting:
         return "MIDI learn: " + paramName() + " - move a control on your keyboard"
                + (user >= 0 ? "   (now CC " + juce::String(user) + ")"
-                            : fact >= 0 ? "   (factory CC " + juce::String(fact) + ")" : juce::String());
+                  : off     ? juce::String("   (no CC)")
+                  : fact >= 0 ? "   (default CC " + juce::String(fact) + ")" : juce::String("   (no CC)"));
       case Assigned:
         return paramName() + " = CC " + juce::String(mAssignedCC);
       case Removed:
-        return paramName() + ": CC removed - " + (fact >= 0 ? "back to factory CC " + juce::String(fact) : juce::String("no CC assigned"));
+        return paramName() + ": CC removed - it answers to no CC";
+      case Defaulted:
+        return paramName() + (fact >= 0 ? ": back to the default CC " + juce::String(fact) : juce::String(": default - no CC"));
       default: return {};
     }
-  }
-
-  void refreshButtons()
-  {
-    mRemove.setVisible(mState != Removed && mProc.hasUserCC(mParamIdx));
-    mClose.setText(mState == Waiting ? "Cancel" : "OK");
   }
 
   void setState(State s)
@@ -111,9 +114,16 @@ private:
 
   void onRemove()
   {
-    mProc.clearMidiLearn(mParamIdx);      // also ends the learn if it is waiting
+    mProc.disableMidiCC(mParamIdx);       // also ends the learn if it is waiting
     mDeadline = juce::Time::getMillisecondCounter() + 4000;
     setState(Removed);
+  }
+
+  void onDefault()
+  {
+    mProc.clearMidiLearn(mParamIdx);      // also ends the learn if it is waiting
+    mDeadline = juce::Time::getMillisecondCounter() + 4000;
+    setState(Defaulted);
   }
 
   void onClose()
@@ -123,7 +133,7 @@ private:
   }
 
   KR106AudioProcessor& mProc;
-  KR106TouchTextButton mRemove, mClose;
+  KR106TouchTextButton mRemove, mDefault, mClose;
   State mState = Hidden;
   int mParamIdx = -1, mAssignedCC = -1;
   juce::uint32 mDeadline = 0;

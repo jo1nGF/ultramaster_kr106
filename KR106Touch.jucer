@@ -25,6 +25,7 @@
       <FILE id="4ed7af" name="KR106MenuSheet.h" compile="0" resource="0" file="Source/Controls/KR106MenuSheet.h"/>
       <FILE id="5a1b01" name="KR106LearnBar.h" compile="0" resource="0" file="Source/Controls/KR106LearnBar.h"/>
       <FILE id="5a1b02" name="KR106ScaleSheet.h" compile="0" resource="0" file="Source/Controls/KR106ScaleSheet.h"/>
+      <FILE id="5a1b04" name="KR106ModEnvDisplay.h" compile="0" resource="0" file="Source/Controls/KR106ModEnvDisplay.h"/>
       <FILE id="1423c9" name="KR106Misc.h" compile="0" resource="0" file="Source/Controls/KR106Misc.h"/>
       <FILE id="2e0635" name="KR106PresetDisplay.h" compile="0" resource="0" file="Source/Controls/KR106PresetDisplay.h"/>
       <FILE id="ae3df0" name="KR106QwertyDiagram.h" compile="0" resource="0" file="Source/Controls/KR106QwertyDiagram.h"/>

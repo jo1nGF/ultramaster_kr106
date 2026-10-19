@@ -407,7 +407,95 @@ public:
   uint32_t mModNoteOns = 0, mModNoteOffs = 0;
   int mModVel = 127;
 
+  // ---- Scale quantizer (output stage) ----------------------------------------------------------
+  // Keys, Hold-latched notes, chords and arpeggiator steps all keep their ORIGINAL note numbers;
+  // the note is snapped to the scale only when it is sent to the voices (SendToSynth). That is what
+  // lets a held or arpeggiated chord follow the scale: when the scale or root changes (by hand or by
+  // modulation) RequantizeSounding() moves every sounding note to its new pitch. Scale Off = identity.
+  // mSoundQ[n] is the pitch that note n is sounding at (-1 = silent); mQRef counts the notes
+  // sharing a pitch, so a pitch is released only when the last of them ends.
+  int  mScaleType = 0, mScaleRoot = 0;
+  uint16_t mScaleCustom = kr106::kScaleAllNotes;
+  uint16_t mScaleMask = kr106::kScaleAllNotes;
+  int8_t  mSoundQ[128];
+  uint8_t mSoundVel[128];
+  uint8_t mQRef[128];
+  void ResetQuant()
+  {
+    std::fill(std::begin(mSoundQ), std::end(mSoundQ), int8_t(-1));
+    std::fill(std::begin(mSoundVel), std::end(mSoundVel), uint8_t(127));
+    std::fill(std::begin(mQRef), std::end(mQRef), uint8_t(0));
+  }
+  int  SoundingPitch(int note) const { return (note >= 0 && note < 128 && mSoundQ[note] >= 0) ? mSoundQ[note] : note; }
+  bool PitchKeyedDown(int pitch) const
+  {
+    for (int n = 0; n < 128; n++)
+      if (mKeysDown.test(n) && SoundingPitch(n) == pitch) return true;
+    return false;
+  }
+  // Forget that a note is sounding without sending anything (the caller releases the voices itself)
+  void ForgetSounding(int note)
+  {
+    if (note < 0 || note >= 128 || mSoundQ[note] < 0) return;
+    const int q = mSoundQ[note];
+    mSoundQ[note] = -1;
+    if (mQRef[q] > 0) mQRef[q]--;
+  }
+  void UpdateScale()
+  {
+    const uint16_t m = kr106::scaleAbsMask(mScaleType, mScaleRoot, mScaleCustom);
+    if (m == mScaleMask) return;
+    mScaleMask = m;
+    RequantizeSounding();
+  }
+  void RequantizeSounding()
+  {
+    int notes[128], oldq[128], n = 0;
+    for (int r = 0; r < 128; r++)
+      if (mSoundQ[r] >= 0 && kr106::quantizeNote(r, mScaleMask) != mSoundQ[r]) { notes[n] = r; oldq[n] = mSoundQ[r]; n++; }
+    if (n == 0) return;
+    for (int k = 0; k < n; k++)                          // end the old pitches
+    {
+      mSoundQ[notes[k]] = -1;
+      if (mQRef[oldq[k]] > 0 && --mQRef[oldq[k]] == 0) SendToSynthPitch(oldq[k], false, 0, 0);
+    }
+    for (int k = 0; k < n; k++)                          // start the new ones
+    {
+      const int q = kr106::quantizeNote(notes[k], mScaleMask);
+      mSoundQ[notes[k]] = static_cast<int8_t>(q);
+      if (mQRef[q]++ == 0) SendToSynthPitch(q, true, mSoundVel[notes[k]], 0);
+    }
+  }
+
   void SendToSynth(int note, bool noteOn, int velocity, int offset = 0)
+  {
+    if (note < 0 || note >= 128) return;
+    if (noteOn)
+    {
+      const int q = kr106::quantizeNote(note, mScaleMask);
+      mSoundVel[note] = static_cast<uint8_t>(std::max(0, std::min(127, velocity)));
+      const int old = mSoundQ[note];
+      if (old >= 0)
+      {
+        if (old == q) { SendToSynthPitch(q, true, velocity, offset); return; }   // re-trigger, as before
+        mSoundQ[note] = -1;                                                       // scale moved meanwhile
+        if (mQRef[old] > 0 && --mQRef[old] == 0) SendToSynthPitch(old, false, 0, offset);
+      }
+      mSoundQ[note] = static_cast<int8_t>(q);
+      if (mQRef[q]++ > 0) return;                       // another note already sounds this pitch
+      SendToSynthPitch(q, true, velocity, offset);
+    }
+    else
+    {
+      const int q = mSoundQ[note];
+      if (q < 0) { SendToSynthPitch(note, false, 0, offset); return; }            // not tracked: pass through
+      mSoundQ[note] = -1;
+      if (mQRef[q] > 0 && --mQRef[q] > 0) return;       // the pitch is still sounding for another note
+      SendToSynthPitch(q, false, 0, offset);
+    }
+  }
+
+  void SendToSynthPitch(int note, bool noteOn, int velocity, int offset = 0)
   {
     (void)offset;
     if (noteOn) { mModNoteOns++; mModVel = velocity; }
@@ -825,38 +913,7 @@ public:
     }
   }
 
-  // Scale quantizer: every key that goes down is snapped to the selected scale and remembered,
-  // so its NoteOff releases the same (snapped) pitch even if the scale changes meanwhile.
-  // Two keys snapped to one pitch share it (reference count). Scale Off = identity.
-  int  mScaleType = 0, mScaleRoot = 0;
-  uint16_t mScaleCustom = kr106::kScaleAllNotes;
-  uint16_t mScaleMask = kr106::kScaleAllNotes;
-  int8_t  mQuantTo[128];
-  uint8_t mQuantRef[128];
-  void ResetQuant() { std::fill(std::begin(mQuantTo), std::end(mQuantTo), int8_t(-1)); std::fill(std::begin(mQuantRef), std::end(mQuantRef), uint8_t(0)); }
-  void UpdateScale() { mScaleMask = kr106::scaleAbsMask(mScaleType, mScaleRoot, mScaleCustom); }
-
   void NoteOn(int note, int velocity)
-  {
-    if (note < 0 || note >= 128) return;
-    if (mQuantTo[note] >= 0) return;                  // this physical key is already down
-    const int q = kr106::quantizeNote(note, mScaleMask);
-    mQuantTo[note] = static_cast<int8_t>(q);
-    if (mQuantRef[q]++ > 0) return;                   // another key already holds this pitch
-    NoteOnPitch(q, velocity);
-  }
-
-  void NoteOff(int note)
-  {
-    if (note < 0 || note >= 128) return;
-    const int q = mQuantTo[note];
-    if (q < 0) return;
-    mQuantTo[note] = -1;
-    if (mQuantRef[q] > 0 && --mQuantRef[q] > 0) return;   // the pitch is still held by another key
-    NoteOffPitch(q);
-  }
-
-  void NoteOnPitch(int note, int velocity)
   {
     if (note < 0 || note >= 128) return;
     // Edge-trigger dedup matching ROM $01E0 bitfield merge: a NoteOn for an
@@ -870,7 +927,7 @@ public:
     SendToSynth(note, true, velocity, 0);
   }
 
-  void NoteOffPitch(int note)
+  void NoteOff(int note)
   {
     if (note < 0 || note >= 128) return;
     // Edge-trigger: ignore NoteOff for keys that aren't held (matches the
@@ -1141,7 +1198,9 @@ private:
         if (mHeldNotes.test(i))
         {
           if (mArp.mEnabled) mArp.NoteOff(i);
-          auto it = std::find(mUnisonStack.begin(), mUnisonStack.end(), i);
+          const int qi = SoundingPitch(i);
+          ForgetSounding(i);
+          auto it = std::find(mUnisonStack.begin(), mUnisonStack.end(), qi);
           if (it != mUnisonStack.end()) mUnisonStack.erase(it);
         }
       }
@@ -1177,7 +1236,7 @@ private:
     int nv = static_cast<int>(NVoices());
     for (int i = 0; i < nv; i++)
     {
-      if (mVoiceNote[i] >= 0 && !mKeysDown.test(mVoiceNote[i]))
+      if (mVoiceNote[i] >= 0 && !PitchKeyedDown(mVoiceNote[i]))
       {
         mVoices[i]->Release();
         mVoiceNote[i] = -1;

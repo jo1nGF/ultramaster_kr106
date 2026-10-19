@@ -294,10 +294,11 @@ KR106Editor::KR106Editor(KR106AudioProcessor& p)
                 "Loc", "MajP", "minP", "Blues", "Whole", "Dim", "PhrD", "Hun", "In", "Cust" };
             mScaleBtn = add(new KR106TouchChoice("Scale",
                 [this]() {
-                    const int t = kr106::scaleTypeFromValue(mProcessor.getParam(kScaleType)->getValue());
+                    // (shows the scale actually in use, so a modulated scale / root is visible)
+                    const int t = kr106::scaleTypeFromValue(mProcessor.modDisplayValue(kScaleType));
                     if (t == kr106::kScaleOff) return juce::String("Off");
                     if (t == kr106::kScaleCustom) return juce::String("Custom");
-                    return juce::String(kr106::kNoteNames[kr106::scaleRootFromValue(mProcessor.getParam(kScaleRoot)->getValue())])
+                    return juce::String(kr106::kNoteNames[kr106::scaleRootFromValue(mProcessor.modDisplayValue(kScaleRoot))])
                            + " " + kShort[t];
                 },
                 [this]() { showScaleSheet(); }), x0 + 324, ty + 112, 56, 30);
@@ -457,44 +458,52 @@ KR106Editor::KR106Editor(KR106AudioProcessor& p)
     // =====================================================================
     curPage = 2;
     const int firstModChild = mContent.getNumChildComponents();
-    for (int l = 0; l < kNumModLfos; l++)                          // LFO 1, 2, 3 (204 wide each)
+    for (int l = 0; l < kNumModLfos; l++)                          // LFO 1, 2, 3 (192 wide each)
     {
-      const int x0 = 8 + l * 212, ty = kRowA;
+      const int x0 = 8 + l * 200, ty = kRowA;
       const int b = (l == 0) ? kLfo1Wave : (l == 1) ? kLfo2Wave : kLfo3Wave;
-      tile(l == 0 ? "LFO 1" : l == 1 ? "LFO 2" : "LFO 3", x0, ty, 204, false);
-      add(new KR106ModLed(&mProcessor, kr106::kSrcLfo1 + l, true), x0 + 178, ty + 3, 15, 15);
+      tile(l == 0 ? "LFO 1" : l == 1 ? "LFO 2" : "LFO 3", x0, ty, 192, false);
+      add(new KR106ModLed(&mProcessor, kr106::kSrcLfo1 + l, true), x0 + 166, ty + 3, 15, 15);
       mModChoices.push_back(add(new KR106TouchChoice("Wave",
           [this, b]() { return juce::String(kr106::kModWaveNames[kr106::modWaveFromValue(mProcessor.getParam(b)->getValue())]); },
           [this, b, x0, ty]() {
             juce::StringArray names;
             for (int i = 0; i < kr106::kNumModWaves; i++) names.add(kr106::kModWaveNames[i]);
-            showChoiceMenu(names, kr106::modWaveFromValue(mProcessor.getParam(b)->getValue()), { x0 + 6, ty + 52, 92, 26 },
+            showChoiceMenu(names, kr106::modWaveFromValue(mProcessor.getParam(b)->getValue()), { x0 + 6, ty + 52, 84, 26 },
                            [this, b](int idx) { mProcessor.getParam(b)->setValueNotifyingHost(kr106::valueFromModWave(idx)); });
-          }), x0 + 6, ty + 26, 92, 24));
+          }), x0 + 6, ty + 26, 84, 24));
       auto* rt = new KR106TouchToggle("Retrig", param(b + 4));
-      add(rt, x0 + 104, ty + 30, 62, 18);
+      add(rt, x0 + 94, ty + 30, 62, 18);
       mLearnableParams.push_back(b + 4);
       mLearnableControls.push_back({ b + 4, rt });
       // rows as in the reference: Rate (TIME), Delay, S/H ; Smooth (SMTH), Phase, Amount (AMT)
-      knob(b + 1, x0 + 34,  ty + 74,  "Rate",   1.3f);
-      knob(b + 3, x0 + 102, ty + 74,  "Delay",  1.3f);
-      knob(b + 5, x0 + 170, ty + 74,  "S/H",    1.3f);
-      knob(b + 6, x0 + 34,  ty + 124, "Smooth", 1.3f);
-      knob(b + 7, x0 + 102, ty + 124, "Phase",  1.3f);
-      knob(b + 2, x0 + 170, ty + 124, "Amount", 1.3f);
+      knob(b + 1, x0 + 32,  ty + 74,  "Rate",   1.3f);
+      knob(b + 3, x0 + 96,  ty + 74,  "Delay",  1.3f);
+      knob(b + 5, x0 + 160, ty + 74,  "S/H",    1.3f);
+      knob(b + 6, x0 + 32,  ty + 124, "Smooth", 1.3f);
+      knob(b + 7, x0 + 96,  ty + 124, "Phase",  1.3f);
+      knob(b + 2, x0 + 160, ty + 124, "Amount", 1.3f);
     }
-    {   // ENVELOPE (XADSR controls): Attack, Decay, S-Start, S-Time / Release, Amp, Velocity
-      const int x0 = 644, ty = kRowA;
-      tile("Envelope", x0, ty, 222, false);
-      add(new KR106ModLed(&mProcessor, kr106::kSrcEnv, false), x0 + 196, ty + 3, 15, 15);
-      const int cy1 = ty + 56, cy2 = ty + 114;
-      knob(kModEnvAtt,    x0 + 28,  cy1, "Attack",   1.3f);
-      knob(kModEnvDec,    x0 + 82,  cy1, "Decay",    1.3f);
-      knob(kModEnvSStart, x0 + 136, cy1, "S-Start",  1.3f);
-      knob(kModEnvSTime,  x0 + 190, cy1, "S-Time",   1.3f);
-      knob(kModEnvRel,    x0 + 55,  cy2, "Release",  1.3f);
-      knob(kModEnvAmp,    x0 + 109, cy2, "Amp",      1.3f);
-      knob(kModEnvVel,    x0 + 163, cy2, "Velocity", 1.3f);
+    {   // ENVELOPE: a live display of the shape (red dot = where the envelope is now) and seven vertical faders
+        const int x0 = 608, ty = kRowA;
+        tile("Envelope", x0, ty, 258, false);
+        add(new KR106ModLed(&mProcessor, kr106::kSrcEnv, false), x0 + 232, ty + 3, 15, 15);
+        add(new KR106ModEnvDisplay(mProcessor), x0 + 8, ty + 24, 242, 46);
+        constexpr float kEF = 1.15f;                                // faders 20x49 -> 23x56
+        auto envFader = [&](int idx, int i, const char* l) {
+            const int x = x0 + 10 + i * 35;
+            auto* sl = new KR106Slider(param(idx), tip, sliderHdl);
+            addSlider(idx, sl, x, ty + 76, 20, 49)->setExtraRight(1);
+            scaled(sl, kEF);
+            lbl(l, x + 10.f * kEF, ty + kLblY);
+        };
+        envFader(kModEnvAtt,    0, "Att");
+        envFader(kModEnvDec,    1, "Dec");
+        envFader(kModEnvSStart, 2, "Sus");
+        envFader(kModEnvSTime,  3, "S-Tm");
+        envFader(kModEnvRel,    4, "Rel");
+        envFader(kModEnvAmp,    5, "Amp");
+        envFader(kModEnvVel,    6, "Vel");
     }
     for (int col = 0; col < 2; col++)                              // MATRIX: 12 slots, two columns of six
     {
@@ -1183,7 +1192,7 @@ void KR106Editor::advanceMidiLearn(int dir)
     // Show tooltip with "MIDI LEARN" on the target control
     auto* param = mProcessor.getParam(lc.paramIdx);
     int cc = mProcessor.getCCForParam(lc.paramIdx);
-    mTooltip.setLine2(cc >= 0 ? "MIDI LEARN (CC " + juce::String(cc) + ")  Del: remove" : "MIDI LEARN");
+    mTooltip.setLine2(cc >= 0 ? "MIDI LEARN (CC " + juce::String(cc) + ")  Del: remove  Bksp: default" : "MIDI LEARN");
     mTooltip.show(param, lc.ctrl);
 
     repaint();
@@ -1209,15 +1218,18 @@ bool KR106Editor::keyPressed(const juce::KeyPress& key)
             return true;
         }
     }
-    // Delete / Backspace while learning: remove the CC the user assigned (factory CC applies again)
+    // While learning: Delete = remove the CC (the control answers to no CC),
+    // Backspace = back to the default (factory) CC
     if (key == juce::KeyPress::deleteKey || key == juce::KeyPress::backspaceKey)
     {
         int learnParam = mProcessor.mMidiLearnParam.load(std::memory_order_relaxed);
         if (learnParam >= 0)
         {
-            mProcessor.clearMidiLearn(learnParam);
+            const bool remove = (key == juce::KeyPress::deleteKey);
+            if (remove) mProcessor.disableMidiCC(learnParam); else mProcessor.clearMidiLearn(learnParam);
             const int fact = mProcessor.getDefaultCCForParam(learnParam);
-            mTooltip.setLine2(fact >= 0 ? "CC removed (factory CC " + juce::String(fact) + ")" : juce::String("CC removed"));
+            mTooltip.setLine2(remove ? juce::String("CC removed")
+                                     : fact >= 0 ? "Default CC " + juce::String(fact) : juce::String("Default (no CC)"));
             mTooltip.update();
             repaint();
             return true;

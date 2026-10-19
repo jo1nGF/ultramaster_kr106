@@ -79,6 +79,7 @@ constexpr int kLfo3Wave = kModFirst + 67, kLfo3Rate = kModFirst + 68, kLfo3Amt =
               kLfo3Delay = kModFirst + 70, kLfo3Retrig = kModFirst + 71, kLfo3SH = kModFirst + 72,
               kLfo3Smooth = kModFirst + 73, kLfo3Phase = kModFirst + 74;
 constexpr int kNumModLfos = 3;
+constexpr int kModFormat = 3;    // version of the matrix Source / Target encoding written to the state
 
 class KR106AudioProcessor : public juce::AudioProcessor
 {
@@ -181,6 +182,9 @@ public:
   std::atomic<float> mModSrcLast[kr106::kNumModSources] {{0.f}, {0.f}, {0.f}, {0.f}, {0.f}};   // LFO 1-3, envelope: last values for the LEDs
   // Value a control should show: the modulated value while the matrix drives it, else the user value
   float modDisplayValue(int p) const { return (p >= 0 && p < kNumParams && mModActive[p]) ? mModSent[p] : (mParams[p] ? mParams[p]->getValue() : 0.f); }
+  // Modulation envelope state for the on-screen display (stage 0 idle .. 4 release, seconds in stage, raw level)
+  std::atomic<int>   mModEnvStage { 0 };
+  std::atomic<float> mModEnvT { 0.f }, mModEnvLevel { 0.f };
   float getModSourceValue(int s) const { return (s >= 0 && s < kr106::kNumModSources) ? mModSrcLast[s].load(std::memory_order_relaxed) : 0.f; }
   float mModSent[kNumParams] = {};
   bool  mModActive[kNumParams] = {};
@@ -192,14 +196,19 @@ public:
   std::atomic<bool> mLfoTriggered{false}; // CC1 mod state (audio→UI)
 
   // MIDI learn: param→CC map (multiple params can share a CC)
-  int mParamCC[kNumParams];                 // param→CC (-1 = no user mapping)
+  static constexpr int kCCDisabled = -2;
+  int mParamCC[kNumParams];                 // param→CC (-1 = no user mapping: factory CC, -2 = no CC at all)
   std::atomic<int> mMidiLearnParam{-1};     // param waiting for CC (-1 = inactive)
   std::atomic<int> mMidiLearnResult{-1};    // CC number captured (audio→UI)
 
   void startMidiLearn(int paramIdx);
   void cancelMidiLearn();
   // Remove the CC the user assigned to this control: the factory CC (if the control has one) applies again
-  void clearMidiLearn(int paramIdx);
+  void clearMidiLearn(int paramIdx);      // = back to the default (factory) CC
+  // Take the CC away from this control altogether, even the factory one (it answers to no CC until
+  // the user learns a new one or goes back to the default)
+  void disableMidiCC(int paramIdx);
+  bool isMidiCCDisabled(int paramIdx) const { return paramIdx >= 0 && paramIdx < kNumParams && mParamCC[paramIdx] == kCCDisabled; }
   int getCCForParam(int paramIdx) const;    // returns CC or -1 (user assignment first, then the factory one)
   int getDefaultCCForParam(int paramIdx) const;   // factory CC of this control or -1
   bool hasUserCC(int paramIdx) const { return paramIdx >= 0 && paramIdx < kNumParams && mParamCC[paramIdx] >= 0; }

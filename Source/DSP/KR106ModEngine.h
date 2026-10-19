@@ -91,13 +91,40 @@ public:
   void NoteOff() { if (mStage != kIdle) { mStage = kRelease; mRelFrom = mLevel; mT = 0.f; } }
 
   // Returns the envelope value for this block (0..1, already scaled by Amp and Velocity).
+  // Stage times in seconds (shared with the on-screen envelope display)
+  static void Times(float att, float dec, float sTime, float rel, float& tA, float& tD, float& tS, float& tR)
+  {
+    tA = 0.001f + 5.f * att * att;
+    tD = 0.001f + 5.f * dec * dec;
+    tS = 0.01f + 10.f * sTime * sTime;
+    tR = 0.001f + 10.f * rel * rel;
+  }
+
+  // Envelope level (0..1, before Amp / Velocity) t seconds after note-on when the key is released
+  // at time tGate. Same maths as Process(), used to draw the envelope.
+  static float CurveAt(float t, float tGate, float tA, float tD, float tS, float tR, float sStart)
+  {
+    const float lvl = Clamp01(sStart);
+    auto held = [&](float x) {
+      if (x < tA) return x / tA;
+      if (x < tA + tD) return lvl + (1.f - lvl) * std::exp(-(x - tA) / (tD * 0.25f));
+      return lvl * std::max(0.f, 1.f - (x - tA - tD) / tS);
+    };
+    if (t < tGate) return held(t);
+    return held(tGate) * std::max(0.f, 1.f - (t - tGate) / tR);
+  }
+
+  // Current state, for the display: 0 idle, 1 attack, 2 decay, 3 sustain, 4 release
+  int   StageIndex() const { return static_cast<int>(mStage); }
+  float StageTime()  const { return mT; }
+  float RawLevel()   const { return mLevel; }
+
+  // Returns the envelope value for this block (0..1, already scaled by Amp and Velocity).
   float Process(int nFrames, float att, float dec, float sStart, float sTime, float rel, float amp, float velSens)
   {
     const float dt = static_cast<float>(nFrames) / mSR;
-    const float tA = 0.001f + 5.f * att * att;
-    const float tD = 0.001f + 5.f * dec * dec;
-    const float tS = 0.01f + 10.f * sTime * sTime;
-    const float tR = 0.001f + 10.f * rel * rel;
+    float tA, tD, tS, tR;
+    Times(att, dec, sTime, rel, tA, tD, tS, tR);
     const float lvl = Clamp01(sStart);
     switch (mStage)
     {
@@ -148,10 +175,10 @@ static inline int modSourceFromValue(float v)
 { return std::max(0, std::min(kNumModSources - 1, static_cast<int>(std::round(v * (kNumModSources - 1))))); }
 static inline float valueFromModSource(int s) { return static_cast<float>(s) / (kNumModSources - 1); }
 
-// Targets. Besides the synth and effects, every control of the three LFOs and of the modulation
+// Targets (the last two, Arp Scale and Arp Root, move the scale quantizer). Besides the synth and effects, every control of the three LFOs and of the modulation
 // envelope can be modulated, and so can portamento. (A modulated Mod-page control takes effect from
 // the next audio block, so one LFO can drive another - or itself - without any trouble.)
-static constexpr int kNumModTargets = 65;
+static constexpr int kNumModTargets = 67;
 static constexpr const char* kModTargetNames[kNumModTargets] = {
   // Filter & amp
   "VCF Freq", "VCF Res", "VCF Env", "VCF LFO", "HPF Freq", "VCA Level",
@@ -170,15 +197,16 @@ static constexpr const char* kModTargetNames[kNumModTargets] = {
   "Digital Time", "Digital Feedback", "Digital Mix",
   "Clouds Position", "Clouds Size", "Clouds Pitch", "Clouds Density", "Clouds Mix", "Clouds Reverb", "Clouds Decay", "Clouds Tone",
   // Arp & limiter
-  "Arp Rate", "Arp Swing", "Arp Gate", "Arp Ratchet", "Arp Strum", "Arp Probability", "Limiter Ceiling"
+  "Arp Rate", "Arp Swing", "Arp Gate", "Arp Ratchet", "Arp Strum", "Arp Probability", "Limiter Ceiling",
+  "Arp Scale", "Arp Root"
 };
 static constexpr int kNumModGroups = 11;
 static constexpr const char* kModGroupNames[kNumModGroups] = {
   "Filter & amp", "Oscillator & LFO", "Envelope", "Mod LFO 1", "Mod LFO 2", "Mod LFO 3", "Mod envelope",
-  "Tape delay", "Digital delay", "Clouds", "Arp & limiter"
+  "Tape delay", "Digital delay", "Clouds", "Arp, scale & limiter"
 };
 static constexpr int kModGroupStart[kNumModGroups] = { 0, 6, 13, 17, 23, 29, 35, 42, 47, 50, 58 };
-static constexpr int kModGroupCount[kNumModGroups] = { 6, 7,  4,  6,  6,  6,  7,  5,  3,  8,  7 };
+static constexpr int kModGroupCount[kNumModGroups] = { 6, 7,  4,  6,  6,  6,  7,  5,  3,  8,  9 };
 static inline int modGroupOf(int t)
 { for (int g = 0; g < kNumModGroups; g++) if (t >= kModGroupStart[g] && t < kModGroupStart[g] + kModGroupCount[g]) return g; return 0; }
 static inline float valueFromModTarget(int t) { return static_cast<float>(t) / (kNumModTargets - 1); }

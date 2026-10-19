@@ -17,6 +17,7 @@
 #include "Controls/KR106TouchKeys.h"
 #include "Controls/KR106LearnBar.h"
 #include "Controls/KR106ScaleSheet.h"
+#include "Controls/KR106ModEnvDisplay.h"
 
 class KR106Editor : public juce::AudioProcessorEditor,
                     private juce::Timer

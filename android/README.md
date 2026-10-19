@@ -24,10 +24,11 @@ O APK é assinado com a chave de debug padrão, o que basta para instalar direto
   o cabeçalho para baixo.
 - **MIDI learn:** segure o dedo (~0,5 s) em qualquer controle e mexa no controle do teclado.
   Uma barra no rodapé da tela (fora da área dos controles, então não cobre nenhum número) mostra
-  o que fazer, e depois o CC atribuído. Os botões da barra: **Remove CC** apaga o CC que você
-  atribuiu a esse controle e o CC de fábrica volta a valer (se o controle tem um; senão fica sem
-  CC), e **Cancel / OK** fecha. Toque em outro controle também cancela. No desktop: Delete ou
-  Backspace durante o learn remove o CC.
+  o que fazer, e depois o CC atribuído. Ela tem sempre três botões: **Remove CC** (o controle
+  deixa de responder a qualquer CC, até o de fábrica), **Default CC** (esquece o CC que você
+  atribuiu e o CC de fábrica do controle volta a valer, se ele tem um) e **Cancel / OK**. Toque em
+  outro controle também cancela. No desktop, durante o learn: Delete = remove o CC, Backspace =
+  volta ao padrão.
 - **Valor padrão:** toque duplo em qualquer fader ou knob volta ao valor padrão do parâmetro
   (inclusive o slider de Amount da matriz). No desktop, Ctrl/Cmd/Alt/Shift + duplo clique ainda
   abre a entrada numérica.
@@ -40,16 +41,20 @@ A terceira aba **Mod** tem:
 - **LFO 1, LFO 2 e LFO 3** com os controles do XLFO: Wave (sine, triangle, square, saw up/down, smooth random,
   S&H), Retrig, Rate, Delay (fade-in), S/H (mistura com sample & hold), Smooth, Phase e Amount.
   O SYNC do desenho (sincronia com o tempo do DAW) ainda não está nesta versão.
-- **Envelope** com os controles do XADSR: Attack, Decay, S-Start (nível de sustain), S-Time (tempo
-  para o sustain cair a zero), Release, Amp e Velocity.
+- **Envelope** (página Mod) com os controles do XADSR em sete faders verticais: Att (Attack), Dec
+  (Decay), Sus (S-Start, o nível de sustain), S-Tm (S-Time, tempo para o sustain cair a zero), Rel
+  (Release), Amp e Vel (Velocity). Acima dos faders fica um **display** com a curva do envelope, desenhada a partir dos faders (inclusive com
+  a modulação que a matriz está somando neles). O ponto vermelho mostra por onde o envelope real
+  está passando enquanto uma nota toca.
 - **Matriz** de 12 linhas: Source (None, LFO 1, LFO 2, LFO 3, Envelope), Target (escolhe um grupo e depois o
   destino) e Amount, um slider horizontal: arraste para a esquerda ou direita (cerca de 300 px dão o curso todo, -100 % a +100 %; cada pixel é cerca de 0,7 %). Duplo toque volta a 0 %, e segurar o dedo faz MIDI learn. A profundidade final é o amount da linha vezes o Amount do LFO.
 
-Destinos disponíveis (65, em 11 grupos): VCF, HPF, VCA, DCO LFO/PWM/Sub/Noise, Tuning,
+Destinos disponíveis (67, em 11 grupos): VCF, HPF, VCA, DCO LFO/PWM/Sub/Noise, Tuning,
 **Portamento**, LFO Rate, envelope principal, **todos os controles das três LFOs** (Rate, Amount,
 Delay, S/H, Smooth, Phase), **todos os controles do envelope da página Mod** (Attack, Decay,
 S-Start, S-Time, Release, Amp, Velocity), Tape delay, Digital delay, Clouds e Arp/limiter
-(incluindo Strum e Probability). Uma LFO pode modular outra, ou a si mesma. Um controle da página
+(incluindo Strum, Probability e **Arp Scale / Arp Root**, que mudam a escala e a tônica do
+quantizador, por exemplo uma LFO passeando pelas escalas). Uma LFO pode modular outra, ou a si mesma. Um controle da página
 Mod modulado passa a valer a partir do bloco de áudio seguinte (alguns milissegundos), o que não
 faz diferença audível. Modos (60/106), liga/desliga e configurações globais não são modulados.
 
@@ -82,7 +87,11 @@ envelope, chorus e arpejador. FX: tape delay, delay digital, limiter, gravador d
   Locrian, pentatônicas, Blues, Whole tone, Diminished, Phrygian dominant, Hungarian minor,
   Japanese) ou **Custom**. As 12 notas na parte de baixo mostram as notas permitidas; tocar numa
   delas edita a escala como Custom, partindo da escala escolhida. Custom usa notas absolutas (C a B),
-  sem depender da tônica. **Off** não quantiza. Strum, Prob e Scale são globais (não entram nos
+  sem depender da tônica. **Off** não quantiza. A quantização acontece na **saída**, no momento em
+  que a nota soa: notas seguradas com **Hold**, acordes (**Chord**) e passos do arpejo guardam a
+  nota original e seguem a escala ao vivo. Se você trocar a escala ou a tônica (na mão ou por
+  modulação) com notas seguradas, elas se movem para as notas da nova escala. O botão Scale mostra a
+  escala em uso, inclusive quando ela está sendo modulada. Strum, Prob e Scale são globais (não entram nos
   presets) e podem ser modulados (Strum e Prob) ou ter MIDI learn.
 - **Automação dos tipos (Auto pattern):** o padrão muda sozinho a cada N passos
   (*Change every*: 4 a 64). Modos: Cycle (próximo da lista), Random e Ping-pong (vai e volta).

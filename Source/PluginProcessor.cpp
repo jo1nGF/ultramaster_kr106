@@ -1015,7 +1015,7 @@ void KR106AudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
       else if (kCCtoParam[cc] >= 0)
       {
         int param = kCCtoParam[cc];
-        if (mParamCC[param] >= 0) {} // param has user assignment — skip default
+        if (mParamCC[param] != -1) {} // param has a user assignment (or its CC was removed) — skip default
         else if (param == kHpfFreq)
         {
           int hpf = msg.getControllerValue() / 32; // 0-31→0, 32-63→1, 64-95→2, 96-127→3
@@ -1495,7 +1495,8 @@ static const int kModTargetParam[kr106::kNumModTargets] = {
   kDDelayTime, kDDelayFeedback, kDDelayMix,
   kCldPos, kCldSize, kCldPitch, kCldDens, kCldMix, kCldRev, kCldDecay, kCldTone,
   // Arp & limiter
-  kArpRate, kArpSwing, kArpGate, kArpRatchet, kArpStrum, kArpProb, kLimCeil
+  kArpRate, kArpSwing, kArpGate, kArpRatchet, kArpStrum, kArpProb, kLimCeil,
+  kScaleType, kScaleRoot
 };
 
 // Controls of the Mod page itself: modulating them changes how the sources behave, not the sound directly
@@ -1544,6 +1545,9 @@ void KR106AudioProcessor::applyModulation(int nFrames, const juce::MidiBuffer& /
                                         pv(kModEnvSTime), pv(kModEnvRel), pv(kModEnvAmp), pv(kModEnvVel));
 
   for (int s = 1; s < kr106::kNumModSources; s++) mModSrcLast[s].store(src[s], std::memory_order_relaxed);
+  mModEnvStage.store(mModEnv.StageIndex(), std::memory_order_relaxed);
+  mModEnvT.store(mModEnv.StageTime(), std::memory_order_relaxed);
+  mModEnvLevel.store(mModEnv.RawLevel(), std::memory_order_relaxed);
 
   float add[kNumParams] = {};
   bool hit[kNumParams] = {};
@@ -1693,12 +1697,17 @@ void KR106AudioProcessor::getStateInformation(juce::MemoryBlock& destData)
   stream.writeInt(0x4B523330); // 'KR30' magic
   stream.writeInt(static_cast<int>(latched.size()));
   for (int n : latched) stream.writeByte(static_cast<char>(n));
+
+  // Matrix encoding version (Source / Target choices); older states have no such block
+  stream.writeInt(0x4B523430); // 'KR40' magic
+  stream.writeInt(kModFormat);
 }
 
 void KR106AudioProcessor::setStateInformation(const void* data, int sizeInBytes)
 {
   mInitialDefault = false;
   std::vector<int> latched;            // Hold-latched notes saved with the state
+  int modFormat = 0;                   // matrix encoding of the saved state (0 = before the 'KR40' block)
   juce::MemoryInputStream stream(data, static_cast<size_t>(sizeInBytes), false);
   int numParams = stream.readInt();
   if (numParams > kNumParams) numParams = kNumParams;
@@ -1723,27 +1732,6 @@ void KR106AudioProcessor::setStateInformation(const void* data, int sizeInBytes)
     float val = stream.readFloat();
     if (mParams[i] != nullptr)
       mParams[i]->setValueNotifyingHost(mParams[i]->convertTo0to1(val));
-  }
-
-  // States saved before LFO 3 and the longer target list stored the matrix Source / Target with the
-  // old encodings (index / 3 and index / 36): convert them to the current ones.
-  if (numParams <= kArpStrum)
-  {
-    for (int r = 0; r < kModRows; r++)
-    {
-      auto* ps = mParams[kModRouteBase + 3 * r];
-      auto* pt = mParams[kModRouteBase + 3 * r + 1];
-      if (ps != nullptr && static_cast<int>(kModRouteBase + 3 * r) < numParams)
-      {
-        const int o = juce::jlimit(0, kr106::kOldNumSources - 1, juce::roundToInt(ps->getValue() * (kr106::kOldNumSources - 1)));
-        ps->setValueNotifyingHost(kr106::valueFromModSource(kr106::kOldSourceToNew[o]));
-      }
-      if (pt != nullptr && static_cast<int>(kModRouteBase + 3 * r + 1) < numParams)
-      {
-        const int o = juce::jlimit(0, kr106::kOldNumTargets - 1, juce::roundToInt(pt->getValue() * (kr106::kOldNumTargets - 1)));
-        pt->setValueNotifyingHost(kr106::valueFromModTarget(kr106::kOldTargetToNew[o]));
-      }
-    }
   }
 
   // Backwards compat: old states lack quantize params. Derive from saved
@@ -1784,6 +1772,7 @@ void KR106AudioProcessor::setStateInformation(const void* data, int sizeInBytes)
           int n = juce::jlimit(0, 128, stream.readInt());
           for (int i = 0; i < n && !stream.isExhausted(); i++)
             latched.push_back(static_cast<uint8_t>(stream.readByte()));
+          if (!stream.isExhausted() && stream.readInt() == 0x4B523430) modFormat = stream.readInt();
         }
       }
       else
@@ -1818,6 +1807,31 @@ void KR106AudioProcessor::setStateInformation(const void* data, int sizeInBytes)
     }
   }
 
+
+  // The matrix Source / Target choices are stored as index / (count - 1), and the lists have grown:
+  //   before LFO 3 (state has <= kArpStrum params): 4 sources, 37 targets in a different order
+  //   with LFO 3 but before Arp Scale / Arp Root (no 'KR40' block): 65 targets, same order as now
+  // Convert both to the current encoding.
+  if (modFormat < kModFormat)
+  {
+    const bool v1 = numParams <= kArpStrum;
+    for (int r = 0; r < kModRows; r++)
+    {
+      auto* ps = mParams[kModRouteBase + 3 * r];
+      auto* pt = mParams[kModRouteBase + 3 * r + 1];
+      if (ps != nullptr && kModRouteBase + 3 * r < numParams && v1)
+      {
+        const int o = juce::jlimit(0, kr106::kOldNumSources - 1, juce::roundToInt(ps->getValue() * (kr106::kOldNumSources - 1)));
+        ps->setValueNotifyingHost(kr106::valueFromModSource(kr106::kOldSourceToNew[o]));
+      }
+      if (pt != nullptr && kModRouteBase + 3 * r + 1 < numParams)
+      {
+        const int t = v1 ? kr106::kOldTargetToNew[juce::jlimit(0, kr106::kOldNumTargets - 1, juce::roundToInt(pt->getValue() * (kr106::kOldNumTargets - 1)))]
+                         : juce::jlimit(0, kr106::kNumModTargets - 1, juce::roundToInt(pt->getValue() * 64.f));
+        pt->setValueNotifyingHost(kr106::valueFromModTarget(t));
+      }
+    }
+  }
 
   // Hold-latched notes (arpeggiator keys that stay on) come back last, after Hold/Arp
   restoreLatchedNotes(latched);
@@ -1972,7 +1986,7 @@ void KR106AudioProcessor::loadGlobalSettings()
     {
       int param = prop.name.toString().getIntValue();
       int cc = (int)prop.value;
-      if (param >= 0 && param < kNumParams && cc >= 0 && cc < 128)
+      if (param >= 0 && param < kNumParams && ((cc >= 0 && cc < 128) || cc == kCCDisabled))
         mParamCC[param] = cc;
     }
   }
@@ -2100,7 +2114,7 @@ void KR106AudioProcessor::saveGlobalSettings()
   // Save MIDI learn CC map (param→CC, only non-empty entries)
   auto* ccObj = new juce::DynamicObject();
   for (int i = 0; i < kNumParams; i++)
-    if (mParamCC[i] >= 0)
+    if (mParamCC[i] != -1)
       ccObj->setProperty(juce::String(i), mParamCC[i]);
   KR106PresetManager::saveSetting("midiLearnMap", juce::var(ccObj));
 }
@@ -2131,6 +2145,16 @@ void KR106AudioProcessor::clearMidiLearn(int paramIdx)
   saveGlobalSettings();
 }
 
+void KR106AudioProcessor::disableMidiCC(int paramIdx)
+{
+  if (paramIdx >= 0 && paramIdx < kNumParams)
+    mParamCC[paramIdx] = kCCDisabled;
+  if (mMidiLearnParam.load(std::memory_order_relaxed) == paramIdx)
+    mMidiLearnParam.store(-1, std::memory_order_release);
+  mMidiLearnResult.store(-1, std::memory_order_relaxed);
+  saveGlobalSettings();
+}
+
 int KR106AudioProcessor::getDefaultCCForParam(int paramIdx) const
 {
   for (int cc = 0; cc < 128; cc++)
@@ -2140,9 +2164,11 @@ int KR106AudioProcessor::getDefaultCCForParam(int paramIdx) const
 
 int KR106AudioProcessor::getCCForParam(int paramIdx) const
 {
-  // User map takes priority
+  // User map takes priority; a removed CC means no CC at all
   if (paramIdx >= 0 && paramIdx < kNumParams && mParamCC[paramIdx] >= 0)
     return mParamCC[paramIdx];
+  if (paramIdx >= 0 && paramIdx < kNumParams && mParamCC[paramIdx] == kCCDisabled)
+    return -1;
   // Fall back to hardcoded map
   return getDefaultCCForParam(paramIdx);
 }
