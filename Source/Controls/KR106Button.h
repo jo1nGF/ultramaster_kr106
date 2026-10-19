@@ -195,7 +195,7 @@ private:
         if (mProcessor->mMidiLearnParam.load(std::memory_order_relaxed) == mParamIdx)
         {
             int cc = mProcessor->getCCForParam(mParamIdx);
-            mTooltip->setLine2(cc >= 0 ? "MIDI LEARN (CC " + juce::String(cc) + ")" : "MIDI LEARN");
+            mTooltip->setLine2(cc >= 0 ? "MIDI LEARN (CC " + juce::String(cc) + ")  Del: remove" : "MIDI LEARN");
             return;
         }
         int cc = mProcessor->getCCForParam(mParamIdx);

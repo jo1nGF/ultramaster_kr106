@@ -15,6 +15,8 @@
 #include "Controls/KR106VarianceSheet.h"
 #include "Controls/KR106Touch.h"
 #include "Controls/KR106TouchKeys.h"
+#include "Controls/KR106LearnBar.h"
+#include "Controls/KR106ScaleSheet.h"
 
 class KR106Editor : public juce::AudioProcessorEditor,
                     private juce::Timer
@@ -37,7 +39,8 @@ private:
     // Landscape phone layout (Galaxy S10 is ~870x412 dp). The content is fitted
     // to the window with letterboxing, so other aspect ratios work too.
     static constexpr int kBaseWidth = 870;
-    static constexpr int kBaseHeight = 412;
+    // 412 for the controls + a free strip at the bottom for the MIDI learn bar
+    static constexpr int kBaseHeight = 430;
 #else
     static constexpr int kBaseWidth = 940;
     static constexpr int kBaseHeight = 224;
@@ -51,8 +54,12 @@ private:
     std::vector<TouchLabel> mTouchLabels;
     void paintTouchBackground(juce::Graphics&);
     void showKeysSheet();
+    void showScaleSheet();
     std::unique_ptr<KR106TouchKeysSheet> mKeysSheet;
+    std::unique_ptr<KR106ScaleSheet> mScaleSheet;
+    KR106TouchChoice* mScaleBtn = nullptr;
     kr106touch::LongPress mLongPress;
+    KR106LearnBar* mLearnBar = nullptr;   // owned by mControls
 
     // Touch UI zoom / pan (zoom is relative to the "fit to window" scale)
     float mZoom = 1.f, mTx = 0.f, mTy = 0.f;
@@ -65,8 +72,6 @@ private:
     std::unique_ptr<KR106MenuSheet> mChoiceMenu;
     KR106TouchChoice* mArpPatternBtn = nullptr;
     KR106TouchChoice* mArpShBtn = nullptr;
-    KR106TouchChoice* mArpScaleBtn = nullptr;
-    KR106TouchChoice* mArpScaleRootBtn = nullptr;
 
     // Two pages: 0 = Synth, 1 = FX (delays, Clouds, limiter, recorder)
     int mPage = 0;
@@ -83,10 +88,9 @@ private:
     KR106TouchToggle* mLimOnBtn = nullptr;
     KR106TouchToggle* mFreezeBtn = nullptr;
     KR106TouchChoice* mArpAutoBtn = nullptr;
-    void showArpAutomationMenu(juce::Rectangle<int> anchor);
+    KR106TouchChoice* mArpEveryBtn = nullptr;
+    KR106TouchChoice* mArpMaskBtn = nullptr;
     void showArpMaskMenu(juce::Rectangle<int> anchor);
-    void showCustomScaleMenu(juce::Rectangle<int> anchor);
-    void showMidiAssignmentMenu(int paramIdx, juce::Component* anchor);
     void showChoiceMenu(const juce::StringArray& names, int current,
                         juce::Rectangle<int> anchor, std::function<void(int)> onPick);
 

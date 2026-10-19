@@ -15,6 +15,7 @@
 #include "KR106Noise.h"
 #include "KR106VcfFreqJ6.h"
 #include "KR106Arpeggiator.h"
+#include "KR106Scale.h"
 #include "KR106Chorus.h"
 #include "KR106TapeDelay.h"
 #include "KR106DigitalDelay.h"
@@ -195,6 +196,7 @@ public:
     std::fill(std::begin(mVoiceNote), std::end(mVoiceNote), -1);
     std::fill(std::begin(mVoiceAge), std::end(mVoiceAge), int64_t(0));
     ResetVoiceTbl();
+    ResetQuant();
     mLFOBuffer.reserve(4096);
     mLFORawBuffer.reserve(4096);
     mSyncBuffer.reserve(4096);
@@ -823,7 +825,38 @@ public:
     }
   }
 
+  // Scale quantizer: every key that goes down is snapped to the selected scale and remembered,
+  // so its NoteOff releases the same (snapped) pitch even if the scale changes meanwhile.
+  // Two keys snapped to one pitch share it (reference count). Scale Off = identity.
+  int  mScaleType = 0, mScaleRoot = 0;
+  uint16_t mScaleCustom = kr106::kScaleAllNotes;
+  uint16_t mScaleMask = kr106::kScaleAllNotes;
+  int8_t  mQuantTo[128];
+  uint8_t mQuantRef[128];
+  void ResetQuant() { std::fill(std::begin(mQuantTo), std::end(mQuantTo), int8_t(-1)); std::fill(std::begin(mQuantRef), std::end(mQuantRef), uint8_t(0)); }
+  void UpdateScale() { mScaleMask = kr106::scaleAbsMask(mScaleType, mScaleRoot, mScaleCustom); }
+
   void NoteOn(int note, int velocity)
+  {
+    if (note < 0 || note >= 128) return;
+    if (mQuantTo[note] >= 0) return;                  // this physical key is already down
+    const int q = kr106::quantizeNote(note, mScaleMask);
+    mQuantTo[note] = static_cast<int8_t>(q);
+    if (mQuantRef[q]++ > 0) return;                   // another key already holds this pitch
+    NoteOnPitch(q, velocity);
+  }
+
+  void NoteOff(int note)
+  {
+    if (note < 0 || note >= 128) return;
+    const int q = mQuantTo[note];
+    if (q < 0) return;
+    mQuantTo[note] = -1;
+    if (mQuantRef[q] > 0 && --mQuantRef[q] > 0) return;   // the pitch is still held by another key
+    NoteOffPitch(q);
+  }
+
+  void NoteOnPitch(int note, int velocity)
   {
     if (note < 0 || note >= 128) return;
     // Edge-trigger dedup matching ROM $01E0 bitfield merge: a NoteOn for an
@@ -837,7 +870,7 @@ public:
     SendToSynth(note, true, velocity, 0);
   }
 
-  void NoteOff(int note)
+  void NoteOffPitch(int note)
   {
     if (note < 0 || note >= 128) return;
     // Edge-trigger: ignore NoteOff for keys that aren't held (matches the
@@ -1041,6 +1074,7 @@ public:
   void AllNotesOff()
   {
     mArp.Reset();
+    ResetQuant();
     mKeysDown.reset();
     mHeldNotes.reset();
     ForEachVoice([](kr106::Voice<T>& v) { v.Release(); });
@@ -1053,6 +1087,7 @@ public:
   void PowerOff()
   {
     mArp.Reset();
+    ResetQuant();
     mKeysDown.reset();
     mHeldNotes.reset();
     ForEachVoice([](kr106::Voice<T>& v) { v.Release(); });

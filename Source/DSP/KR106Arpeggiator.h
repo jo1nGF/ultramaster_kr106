@@ -4,7 +4,6 @@
 #include <atomic>
 #include <cmath>
 #include <cstdint>
-#include <cstddef>
 #include <vector>
 
 // KR-106 arpeggiator
@@ -14,6 +13,9 @@
 // cycles), Random Walk, Converge, Diverge, Pedal, Up/Down inclusive, Down/Up.
 // Range: 1 oct (held notes only), 2 oct, Full (3 oct)
 // Rate: steps per minute (from slider, 60-960 BPM)
+//
+// Extras: Chord (all held notes per step) with a Strum amount that spreads the chord
+// notes over part of the step, and a Probability that decides whether each step plays.
 //
 // The arpeggiator intercepts note-on/off and generates its own note
 // events at the arp rate. Each step retriggers the gate (envelope
@@ -207,11 +209,13 @@ struct Arpeggiator
   int   mRatchet = 1;               // hits per step (1..4)
   bool  mChord = false;             // play all held notes together on every step
   std::vector<int> mChordNotes;     // extra notes sounding with mLastNote in chord mode
-  float mStrum = 0.f;               // chord note spread across the step, 0..1
-  float mProbability = 1.f;          // chance that a step triggers, 0..1
-  int   mScaleMode = 0;             // 0=off, 1..7 preset scales, 8=custom
-  int   mScaleRoot = 0;             // pitch class C..B
-  int   mCustomScaleMask = 0xAB5;    // pitch classes C major by default
+  float mStrum = 0.f;               // 0 = chord notes together, 1 = spread over the whole step (low -> high)
+  float mProb = 1.f;                // chance (0..1) that a step plays; a skipped step is a rest
+  std::vector<int> mStepNotes;      // every note of the current step, main note first
+  std::vector<int> mStrumQueue;     // chord notes still waiting for their strum time
+  size_t mStrumIdx = 0;
+  int   mStrumCountdown = 0, mStrumGap = 1;
+  float mStepSamples = 22050.f;     // length of one step in samples (set every block)
   int   mStepParity = 0;            // alternates every step (swing)
   int   mRatchetK = 0;              // sub-hit already played in the current step
   bool  mSounding = false;          // arp note(s) currently on
@@ -268,61 +272,6 @@ struct Arpeggiator
     mRng = mRng * 1664525u + 1013904223u;
     return static_cast<float>(mRng >> 8) * (1.f / 16777216.f);
   }
-
-  int ScaleMask() const
-  {
-    // Pitch-class bitmasks, with C as bit 0. Scale mode 8 uses the editable mask.
-    switch (mScaleMode)
-    {
-      case 1: return 0xAB5; // Major:          0 2 4 5 7 9 11
-      case 2: return 0x5AD; // Natural minor:   0 2 3 5 7 8 10
-      case 3: return 0x9AD; // Harmonic minor:  0 2 3 5 7 8 11
-      case 4: return 0x295; // Major pentatonic: 0 2 4 7 9
-      case 5: return 0x4A9; // Minor pentatonic: 0 3 5 7 10
-      case 6: return 0x4E9; // Blues:           0 3 5 6 7 10
-      case 7: return 0x6AD; // Dorian:          0 2 3 5 7 9 10
-      case 8: return mCustomScaleMask & 0x0FFF;
-      default: return 0x0FFF;
-    }
-  }
-
-  int QuantizeNote(int note) const
-  {
-    if (mScaleMode <= 0) return note;
-    const int mask = ScaleMask();
-    if (mask == 0 || mask == 0x0FFF) return note;
-    const int root = ((mScaleRoot % 12) + 12) % 12;
-    int best = note;
-    int bestDist = 127;
-    // Scan from low to high; ties therefore choose the lower pitch.
-    for (int d = -6; d <= 6; ++d)
-    {
-      const int candidate = note + d;
-      if (candidate < 0 || candidate > 127) continue;
-      const int pc = ((candidate - root) % 12 + 12) % 12;
-      if ((mask & (1 << pc)) == 0) continue;
-      const int dist = std::abs(d);
-      if (dist < bestDist) { best = candidate; bestDist = dist; }
-    }
-    return best;
-  }
-
-  struct PendingStrumNote { int note; int samplesUntilOn; };
-  std::vector<PendingStrumNote> mPendingStrumNotes;
-
-  template <typename NoteOnF>
-  void ProcessPendingStrum(int sample, NoteOnF noteOn)
-  {
-    for (size_t i = 0; i < mPendingStrumNotes.size(); )
-    {
-      if (--mPendingStrumNotes[i].samplesUntilOn <= 0)
-      {
-        noteOn(mPendingStrumNotes[i].note, sample);
-        mPendingStrumNotes.erase(mPendingStrumNotes.begin() + static_cast<std::ptrdiff_t>(i));
-      }
-      else ++i;
-    }
-  }
   void SetShLoop(int idx)
   {
     idx = std::max(0, std::min(kNumShLoops - 1, idx));
@@ -341,7 +290,11 @@ struct Arpeggiator
     return mShBuf[i];
   }
 
-  Arpeggiator() { mHeldNotes.reserve(128); mPlayOrder.reserve(128); mChordNotes.reserve(128); mPendingStrumNotes.reserve(128); }
+  Arpeggiator()
+  {
+    mHeldNotes.reserve(128); mPlayOrder.reserve(128); mChordNotes.reserve(256);
+    mStepNotes.reserve(256); mStrumQueue.reserve(256);
+  }
   int mStepIndex = 0;
   int mDirection = 1;  // 1=ascending, -1=descending (for Up/Down)
   float mPhase = 0.f;
@@ -395,14 +348,48 @@ struct Arpeggiator
     if (mLastNote >= 0) noteOff(mLastNote, offset);
     for (int n : mChordNotes) noteOff(n, offset);
     mChordNotes.clear();
-    mPendingStrumNotes.clear();
+    mStrumQueue.clear(); mStrumIdx = 0;            // chord notes not struck yet are dropped
     mLastNote = -1;
     mSounding = false;
   }
 
+  // Play the notes of the current step (mStepNotes, main note first). With a strum the
+  // chord notes are queued and struck one after the other (low -> high) by StrumTick().
+  template <typename NoteOnF>
+  void TriggerStepNotes(NoteOnF noteOn, int s)
+  {
+    mChordNotes.clear(); mStrumQueue.clear(); mStrumIdx = 0;
+    if (mStepNotes.empty()) return;
+    const int first = mStepNotes[0];
+    noteOn(first, s);
+    mLastNote = first;
+    mSounding = true;
+    if (mStepNotes.size() < 2) return;
+    if (mStrum <= 0.005f)
+    {
+      for (size_t i = 1; i < mStepNotes.size(); i++) { noteOn(mStepNotes[i], s); mChordNotes.push_back(mStepNotes[i]); }
+      return;
+    }
+    mStrumQueue.assign(mStepNotes.begin() + 1, mStepNotes.end());
+    mStrumGap = std::max(1, static_cast<int>(std::min(1.f, mStrum) * mStepSamples / static_cast<float>(mStepNotes.size())));
+    mStrumCountdown = mStrumGap;
+  }
+
+  template <typename NoteOnF>
+  void StrumTick(NoteOnF noteOn, int s)
+  {
+    if (mStrumIdx >= mStrumQueue.size()) return;
+    if (--mStrumCountdown > 0) return;
+    const int n = mStrumQueue[mStrumIdx++];
+    noteOn(n, s);
+    mChordNotes.push_back(n);
+    mStrumCountdown = mStrumGap;
+  }
+
   void Reset()
   {
-    mChordNotes.clear(); mPendingStrumNotes.clear(); mSounding = false; mRatchetK = 0; mStepParity = 0;
+    mChordNotes.clear(); mStepNotes.clear(); mStrumQueue.clear(); mStrumIdx = 0;
+    mSounding = false; mRatchetK = 0; mStepParity = 0;
     mHeldNotes.clear();
     mPlayOrder.clear();
     mCounter = 0; mWalkPos = 0; mShPos = 0;
@@ -580,53 +567,36 @@ struct Arpeggiator
     }
 
     // Start of a step: release what is sounding, then play the next note(s)
-    auto startStep = [&](int s, float stepSamples)
+    auto startStep = [&](int s)
     {
       ReleaseSounding(noteOff, s);
-      int note = NextNote();
-      const float probability = std::max(0.f, std::min(1.f, mProbability));
-      const bool trigger = probability >= 0.999999f || Rand() < probability;
-      if (note >= 0 && trigger)
+      const int note = NextNote();                 // always advances the pattern, even for a rest
+      if (note < 0) { mChordNotes.clear(); return; }
+      if (mProb < 0.999f && Rand() >= mProb)       // trigger probability: this step is a rest
       {
-        note = QuantizeNote(note);
-        for (int& n : mChordNotes) n = QuantizeNote(n);
-        noteOn(note, s);
-        mLastNote = note;
-        mSounding = true;
-        if (!mChordNotes.empty() && mStrum > 0.001f)
-        {
-          const float gate = std::max(0.05f, std::min(1.f, mGate));
-          const float spread = std::min(0.75f * mStrum, 0.85f * gate) * stepSamples;
-          const int count = static_cast<int>(mChordNotes.size());
-          for (int i = 0; i < count; ++i)
-          {
-            const int delay = std::max(1, static_cast<int>(std::round(spread * (i + 1) / count)));
-            mPendingStrumNotes.push_back({ mChordNotes[static_cast<size_t>(i)], delay });
-          }
-        }
-        else
-        {
-          for (int n : mChordNotes) noteOn(n, s);
-        }
+        mChordNotes.clear();
+        return;
       }
-      else mChordNotes.clear(); // a missed probability trigger still advances the sequence
+      mStepNotes.clear();
+      mStepNotes.push_back(note);
+      for (int n : mChordNotes) mStepNotes.push_back(n);
+      TriggerStepNotes(noteOn, s);
     };
 
     if (mSyncToHost)
     {
       int div = std::max(0, std::min(mDivision, static_cast<int>(kNumArpDivisions) - 1));
       double divBeats = kDivBeats[div];
+      mStepSamples = static_cast<float>(divBeats * 60.0 / std::max(1.0, mHostBPM) * static_cast<double>(mSampleRate));
 
       if (mHostPlaying)
       {
         // Transport running: lock steps to the beat grid (swing / gate / ratchet apply to
         // the free-running clock only)
         double beatsPerSample = mHostBPM / (60.0 * static_cast<double>(mSampleRate));
-        const float stepSamples = static_cast<float>(divBeats / beatsPerSample);
 
         for (int s = 0; s < nFrames; s++)
         {
-          ProcessPendingStrum(s, noteOn);
           double beatPos = mHostBeatPos + s * beatsPerSample;
           int64_t stepNow = static_cast<int64_t>(std::floor(beatPos / divBeats));
 
@@ -634,8 +604,9 @@ struct Arpeggiator
           {
             mLastSyncStep = stepNow;
             mTickCount.fetch_add(1, std::memory_order_relaxed);
-            startStep(s, stepSamples);
+            startStep(s);
           }
+          StrumTick(noteOn, s);
         }
         return;
       }
@@ -643,18 +614,17 @@ struct Arpeggiator
       // Transport stopped: free-run at tempo-matched rate
       float syncRate = static_cast<float>(mHostBPM / divBeats);
       float inc = syncRate / (60.f * mSampleRate);
-      const float stepSamples = 1.f / std::max(inc, 1.0e-9f);
 
       for (int s = 0; s < nFrames; s++)
       {
-        ProcessPendingStrum(s, noteOn);
         mPhase += inc;
         if (mPhase >= 1.f)
         {
           mPhase -= 1.f;
           mTickCount.fetch_add(1, std::memory_order_relaxed);
-          startStep(s, stepSamples);
+          startStep(s);
         }
+        StrumTick(noteOn, s);
       }
       return;
     }
@@ -662,6 +632,7 @@ struct Arpeggiator
     // Free-running mode: phase accumulator at mRate steps/minute.
     // Swing: steps alternate between a longer and a shorter length (their sum stays
     // constant), so the odd steps arrive late. ratio 0.5 = straight (the original).
+    mStepSamples = mSampleRate * 60.f / std::max(1.f, mRate);
     const float baseInc = mRate / (60.f * mSampleRate);
     const float ratio = 0.5f + 0.25f * std::max(0.f, std::min(1.f, mSwing));
     const float incEven = baseInc * 0.5f / ratio;           // first step of the pair is long
@@ -671,7 +642,6 @@ struct Arpeggiator
 
     for (int s = 0; s < nFrames; s++)
     {
-      ProcessPendingStrum(s, noteOn);
       // parity flips at every step boundary; the interval after an on-beat step is the long one
       mPhase += (mStepParity == 1) ? incEven : incOdd;
       if (mPhase >= 1.f)
@@ -680,8 +650,7 @@ struct Arpeggiator
         mStepParity ^= 1;
         mRatchetK = 0;
         mTickCount.fetch_add(1, std::memory_order_relaxed);
-        const float stepSamples = 1.f / ((mStepParity == 1) ? incEven : incOdd);
-        startStep(s, stepSamples);
+        startStep(s);
       }
       else if (mLastNote >= 0)
       {
@@ -691,20 +660,15 @@ struct Arpeggiator
         if (k > mRatchetK)                                   // next ratchet hit: retrigger the same notes
         {
           mRatchetK = k;
-          const int mainNote = mLastNote;
-          const std::vector<int> extras = mChordNotes;
           ReleaseSounding(noteOff, s);
-          noteOn(mainNote, s);
-          mLastNote = mainNote;
-          mChordNotes = extras;
-          for (int n : mChordNotes) noteOn(n, s);
-          mSounding = true;
+          TriggerStepNotes(noteOn, s);                       // same notes again (strummed again too)
         }
         else if (gate < 0.999f && (sub - static_cast<float>(k)) >= gate)
         {
           ReleaseSounding(noteOff, s);                       // gate closed: the note ends early
         }
       }
+      StrumTick(noteOn, s);
     }
   }
 };

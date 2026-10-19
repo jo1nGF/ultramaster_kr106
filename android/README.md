@@ -22,8 +22,15 @@ O APK é assinado com a chave de debug padrão, o que basta para instalar direto
 - **Keys:** botão vermelho na barra superior abre um teclado de 3 oitavas (multitoque,
   glissando, velocity pela altura do toque, Oct -/+ e bender). Fecha com Close ou arrastando
   o cabeçalho para baixo.
-- **MIDI learn:** segure o dedo (~0,5 s) em um controle; escolha *Start MIDI Learn* e mova um controle do teclado MIDI. A mensagem de estado aparece na faixa superior, sem cobrir valores. No mesmo menu, *Remove learned CC / use default* remove a atribuição aprendida e reativa o mapeamento padrão do app.
-- **Reset de controle:** duplo toque em knobs e faders contínuos restaura o valor padrão do parâmetro.
+- **MIDI learn:** segure o dedo (~0,5 s) em qualquer controle e mexa no controle do teclado.
+  Uma barra no rodapé da tela (fora da área dos controles, então não cobre nenhum número) mostra
+  o que fazer, e depois o CC atribuído. Os botões da barra: **Remove CC** apaga o CC que você
+  atribuiu a esse controle e o CC de fábrica volta a valer (se o controle tem um; senão fica sem
+  CC), e **Cancel / OK** fecha. Toque em outro controle também cancela. No desktop: Delete ou
+  Backspace durante o learn remove o CC.
+- **Valor padrão:** toque duplo em qualquer fader ou knob volta ao valor padrão do parâmetro
+  (inclusive o slider de Amount da matriz). No desktop, Ctrl/Cmd/Alt/Shift + duplo clique ainda
+  abre a entrada numérica.
 - **Engrenagem:** abre o menu original de ajustes (vozes, oversampling, sync etc.).
   No S10, comece com 6 vozes e VCF Oversample 2x e suba se a CPU permitir.
 
@@ -38,20 +45,18 @@ A terceira aba **Mod** tem:
 - **Matriz** de 12 linhas: Source (None, LFO 1, LFO 2, LFO 3, Envelope), Target (escolhe um grupo e depois o
   destino) e Amount, um slider horizontal: arraste para a esquerda ou direita (cerca de 300 px dão o curso todo, -100 % a +100 %; cada pixel é cerca de 0,7 %). Duplo toque volta a 0 %, e segurar o dedo faz MIDI learn. A profundidade final é o amount da linha vezes o Amount do LFO.
 
-Destinos disponíveis (69, em grupos): controles de filtro, amp, oscilador, envelopes, efeitos e arpejador,
-além de todos os controles dos três LFOs, todos os parâmetros do envelope de modulação e a taxa de
-portamento. Assim, uma rota pode modular inclusive outro modulador (a atualização da matriz tem atraso
-de um bloco para evitar ciclos recursivos). Modos (60/106), liga/desliga e configurações globais não são modulados.
+Destinos disponíveis (65, em 11 grupos): VCF, HPF, VCA, DCO LFO/PWM/Sub/Noise, Tuning,
+**Portamento**, LFO Rate, envelope principal, **todos os controles das três LFOs** (Rate, Amount,
+Delay, S/H, Smooth, Phase), **todos os controles do envelope da página Mod** (Attack, Decay,
+S-Start, S-Time, Release, Amp, Velocity), Tape delay, Digital delay, Clouds e Arp/limiter
+(incluindo Strum e Probability). Uma LFO pode modular outra, ou a si mesma. Um controle da página
+Mod modulado passa a valer a partir do bloco de áudio seguinte (alguns milissegundos), o que não
+faz diferença audível. Modos (60/106), liga/desliga e configurações globais não são modulados.
+
+Estados salvos antes da LFO 3 são convertidos automaticamente (as linhas da matriz mantêm
+Source e Target).
 
 Os controles da página Mod são globais (não entram nos presets) e fazem parte do estado salvo.
-
-
-## Alterações da versão touch
-
-Os novos parâmetros foram acrescentados depois dos IDs antigos para não deslocar os endereços
-existentes de automação e estado. Os controles de modulação e do arpejador são globais e ficam no
-estado salvo. Ao abrir estados ou presets antigos, os parâmetros que não existiam nessa versão usam
-os defaults do parâmetro.
 
 ## Páginas: Synth e FX
 
@@ -62,10 +67,23 @@ envelope, chorus e arpejador. FX: tape delay, delay digital, limiter, gravador d
 
 - **Swing:** atrasa os passos pares (50% a 75%). **Gate:** duração da nota (10% a 100%).
   **Ratchet:** 1 a 4 repetições por passo. **Chord:** toca todas as notas juntas a cada passo
-  (o Range espalha o acorde pelas oitavas). **Strum** espalha as notas do acorde ao longo do passo;
-  **Prob** define a chance de cada passo disparar. **Scale** quantiza as notas para Off, Major, Minor,
-  Harmonic minor, pentatônicas, Blues, Dorian ou Custom; **Root** escolhe a tônica e Custom permite
-  marcar cada semitom da escala. Swing, gate e ratchet valem para o relógio interno (não para o transporte de um DAW).
+  (o Range espalha o acorde pelas oitavas). Swing, gate e ratchet valem para o relógio interno
+  (não para o transporte de um DAW).
+- **Strum** (knob, vale com Chord ligado): espalha as notas do acorde ao longo do passo, da mais
+  grave à mais aguda. 0% = todas juntas; 100% = a última nota entra quase no fim do passo. Com
+  ratchet, cada repetição é "strumada" de novo. O tempo das notas tem a resolução do bloco de
+  áudio, então espaçamentos muito curtos (menos que alguns ms) saem juntos.
+- **Prob** (knob): probabilidade de cada passo tocar (100% = sempre). Um passo que não toca vira
+  pausa e o padrão segue andando, então o ritmo se mantém.
+- **Scale** (botão ao lado de Prob): abre a folha do quantizador de escalas. As notas que você toca
+  (teclado, MIDI, Keys) são puxadas para a nota mais próxima da escala (em empate, a de baixo), antes
+  do arpejador, então o arpejo e os acordes ficam sempre na escala. Escolha a tônica (C a B) e
+  uma entre 17 escalas (Major, Natural/Harmonic/Melodic minor, Dorian, Phrygian, Lydian, Mixolydian,
+  Locrian, pentatônicas, Blues, Whole tone, Diminished, Phrygian dominant, Hungarian minor,
+  Japanese) ou **Custom**. As 12 notas na parte de baixo mostram as notas permitidas; tocar numa
+  delas edita a escala como Custom, partindo da escala escolhida. Custom usa notas absolutas (C a B),
+  sem depender da tônica. **Off** não quantiza. Strum, Prob e Scale são globais (não entram nos
+  presets) e podem ser modulados (Strum e Prob) ou ter MIDI learn.
 - **Automação dos tipos (Auto pattern):** o padrão muda sozinho a cada N passos
   (*Change every*: 4 a 64). Modos: Cycle (próximo da lista), Random e Ping-pong (vai e volta).
   *Patterns used* escolhe quais padrões entram (toque para marcar/desmarcar). Com a automação

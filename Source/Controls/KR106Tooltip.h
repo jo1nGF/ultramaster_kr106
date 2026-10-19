@@ -53,14 +53,7 @@ public:
         if (!source || !getParentComponent()) return;
         mParam = nullptr;
         mText = text;
-        mLine2 = {};
-        // MIDI Learn is a status message, not a parameter-value tooltip. Keep it
-        // in the left side of the top strip so it never covers a knob/fader value.
-        const int tw = std::min(getParentComponent()->getWidth() - 12, std::max(textWidth(mText), 190) + 12);
-        const int th = kr106touch::kEnabled ? 20 : 18;
-        const int tx = 6;
-        const int ty = kr106touch::kEnabled ? 43 : 2;
-        setBounds(tx, ty, std::max(80, tw), th);
+        positionBelow(source);
         setVisible(true);
         toFront(false);
         repaint();
@@ -71,7 +64,6 @@ public:
     {
         mParam = nullptr;
         mText = text;
-        mLine2 = {};
         int tw = std::max(textWidth(mText), textWidth(mLine2)) + 10;
         setBounds(getX() + (getWidth() - tw) / 2, getY(), tw, getHeight());
         repaint();

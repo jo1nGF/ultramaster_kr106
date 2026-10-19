@@ -218,23 +218,77 @@ public:
     if (isAppleHost()) mCursorDirty = true;
   }
 
-  void mouseDoubleClick(const juce::MouseEvent&) override
+  // Double tap / double click: back to the parameter's default value.
+  // Desktop: Ctrl / Cmd / Alt / Shift + double click opens the numeric entry box instead.
+  void mouseDoubleClick(const juce::MouseEvent& e) override
   {
     if (!mParam) return;
-    // Preserve toggle/discrete click semantics; reset continuous faders to their
-    // parameter's normalized default on double tap/click.
+    if (dynamic_cast<juce::AudioParameterBool*>(mParam)) return;
+    if (!e.mods.isAnyModifierKeyDown())
+    {
+      if (mEditor) dismissEdit();
+      if (mTooltip) mTooltip->hide();
+      mParam->beginChangeGesture();
+      mParam->setValueNotifyingHost(mParam->getDefaultValue());
+      mParam->endChangeGesture();
+      repaint();
+      return;
+    }
+    openNumericEntry();
+  }
+
+  void openNumericEntry()
+  {
+    if (!mParam) return;
     if (dynamic_cast<juce::AudioParameterBool*>(mParam)) return;
     if (dynamic_cast<juce::AudioParameterInt*>(mParam)) return;
     if (mEditor) dismissEdit();
+
     if (mTooltip) mTooltip->hide();
 
-    const float def = mParam->getDefaultValue();
-    mParam->beginChangeGesture();
-    mParam->setValueNotifyingHost(def);
-    mParam->endChangeGesture();
-    mAccumVal = def;
-    mLastRawDY = 0.f;
-    repaint();
+    // Find a parent large enough to host the editor overlay
+    auto* parent = mTooltip ? mTooltip->getParentComponent() : getTopLevelComponent();
+    if (!parent) return;
+
+    mEditor = std::make_unique<juce::TextEditor>();
+    mEditor->setLookAndFeel(&getEditBoxLnF());
+    mEditor->setFont(juce::FontOptions(11.f));
+    mEditor->setColour(juce::TextEditor::backgroundColourId, juce::Colour(0, 0, 0));
+    mEditor->setColour(juce::TextEditor::textColourId, juce::Colour(255, 255, 255));
+    mEditor->setColour(juce::TextEditor::outlineColourId, juce::Colour(128, 128, 128));
+    mEditor->setColour(juce::TextEditor::focusedOutlineColourId, juce::Colour(128, 128, 128));
+    mEditor->setColour(juce::TextEditor::highlightColourId, juce::Colour(80, 80, 80));
+    mEditor->setJustification(juce::Justification::centred);
+
+    // Pre-fill with formatted value (includes units + bracket)
+    juce::String displayText = mParam->getCurrentValueAsText();
+    mEditor->setText(displayText, false);
+
+
+    // Position below slider, sized to fit text (like tooltip)
+    auto srcBounds = parent->getLocalArea(getParentComponent(), getBounds());
+    juce::Font font{juce::FontOptions(11.f)};
+    juce::GlyphArrangement glyphs;
+    glyphs.addLineOfText(font, displayText, 0.f, 0.f);
+    int tw = std::max(50, juce::roundToInt(glyphs.getBoundingBox(0, -1, false).getWidth()) + 16);
+    int th = 16;
+    int tx = srcBounds.getCentreX() - tw / 2;
+    int ty = srcBounds.getBottom() + 2;
+    auto pb = parent->getLocalBounds();
+    tx = juce::jlimit(0, pb.getWidth() - tw, tx);
+    ty = juce::jmin(pb.getHeight() - th, ty);
+    mEditor->setBounds(tx, ty, tw, th);
+
+    parent->addAndMakeVisible(mEditor.get());
+    mEditor->grabKeyboardFocus();
+
+    // Select only the numeric portion (not the unit suffix)
+    int numEnd = findNumericEnd(displayText);
+    mEditor->setHighlightedRegion(juce::Range<int>(0, numEnd));
+
+    mEditor->onReturnKey = [this]() { commitEdit(); };
+    mEditor->onEscapeKey = [this]() { dismissEdit(); };
+    mEditor->onFocusLost = [this]() { dismissEdit(); };
   }
 
 private:
@@ -301,7 +355,7 @@ private:
     if (mProcessor->mMidiLearnParam.load(std::memory_order_relaxed) == mParamIdx)
     {
       int cc = mProcessor->getCCForParam(mParamIdx);
-      mTooltip->setLine2(cc >= 0 ? "MIDI LEARN (CC " + juce::String(cc) + ")" : "MIDI LEARN");
+      mTooltip->setLine2(cc >= 0 ? "MIDI LEARN (CC " + juce::String(cc) + ")  Del: remove" : "MIDI LEARN");
       return;
     }
     int cc = mProcessor->getCCForParam(mParamIdx);

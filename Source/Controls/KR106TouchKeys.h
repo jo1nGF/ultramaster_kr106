@@ -189,7 +189,7 @@ private:
 // ---------------------------------------------------------------------------
 // Horizontal fine slider (bipolar amounts): drag left/right. The full range takes ~300 px,
 // so 1 px is about 0.7 % (fine enough for a 86 px wide control). Centre is 0 %, and a
-// double tap returns to 0 %. Hold still for MIDI learn (LongPress).
+// double tap returns to the default (0 %). Hold still for MIDI learn (LongPress).
 class KR106TouchFineSlider : public juce::Component, private juce::Timer
 {
 public:
@@ -250,7 +250,7 @@ public:
   {
     if (!mParam) return;
     mParam->beginChangeGesture();
-    mParam->setValueNotifyingHost(0.5f);
+    mParam->setValueNotifyingHost(mParam->getDefaultValue());
     mParam->endChangeGesture();
     repaint();
   }

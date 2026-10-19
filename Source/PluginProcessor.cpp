@@ -545,16 +545,16 @@ KR106AudioProcessor::KR106AudioProcessor()
   addSlider(kCldMix,    "Clouds Mix",      0.f,   0.f, 1.f, fmtPct, parsePct);
   addBool(kCldFreeze,   "Clouds Freeze",   false);
 
-  // Modulation: LFO 1/2, envelope, matrix, plus the appended third LFO.
+  // Modulation: LFO 1 / LFO 2 (same controls as the XLFO reference), envelope (XADSR), matrix
   auto nm = [](const juce::String& s) { return s.toStdString(); };
   SFV fmtModWave = [](float v, int) -> juce::String { return kr106::kModWaveNames[kr106::modWaveFromValue(v)]; };
   SFV fmtModRate = [](float v, int) -> juce::String { return juce::String(0.05f * std::pow(400.f, v), 2) + " Hz"; };
   SFV fmtModDelay = [](float v, int) -> juce::String { return juce::String(5.f * v * v, 2) + " s"; };
   SFV fmtModSmooth = [](float v, int) -> juce::String { return juce::String(0.2f * v * v, 2) + " s"; };
   SFV fmtModPhase = [](float v, int) -> juce::String { return juce::String(juce::roundToInt(v * 360.f)) + " deg"; };
-  for (int l = 0; l < 2; l++)
+  for (int l = 0; l < kNumModLfos; l++)
   {
-    const int b = (l == 0) ? kLfo1Wave : kLfo2Wave;
+    const int b = (l == 0) ? kLfo1Wave : (l == 1) ? kLfo2Wave : kLfo3Wave;
     const juce::String pre = "LFO " + juce::String(l + 1) + " ";
     addSlider(b + 0, nm(pre + "Wave").c_str(), 0.f, 0.f, 1.f, fmtModWave);
     addSlider(b + 1, nm(pre + "Rate").c_str(), 0.5f, 0.f, 1.f, fmtModRate);
@@ -588,35 +588,22 @@ KR106AudioProcessor::KR106AudioProcessor()
   addSlider(kCldMode, "Clouds Mode", 0.f, 0.f, 1.f, fmtCldMode);
   addSlider(kCldTone,  "Clouds Tone",  0.4f, 0.f, 1.f, fmtPct, parsePct);
 
-  // Third modulation LFO is appended after the legacy Mod/Clouds block.
-  for (int i = 0; i < 8; ++i)
-  {
-    const int p = kLfo3Wave + i;
-    const char* names[] = { "LFO 3 Wave", "LFO 3 Rate", "LFO 3 Amount", "LFO 3 Delay",
-                            "LFO 3 Retrig", "LFO 3 S&H", "LFO 3 Smooth", "LFO 3 Phase" };
-    if (i == 4) addBool(p, names[i], false);
-    else if (i == 0) addSlider(p, names[i], 0.f, 0.f, 1.f, fmtModWave);
-    else if (i == 1) addSlider(p, names[i], 0.5f, 0.f, 1.f, fmtModRate);
-    else if (i == 2) addSlider(p, names[i], 1.f, 0.f, 1.f, fmtPct, parsePct);
-    else if (i == 3) addSlider(p, names[i], 0.f, 0.f, 1.f, fmtModDelay);
-    else if (i == 5) addSlider(p, names[i], 0.f, 0.f, 1.f, fmtPct, parsePct);
-    else if (i == 6) addSlider(p, names[i], 0.f, 0.f, 1.f, fmtModSmooth);
-    else addSlider(p, names[i], 0.f, 0.f, 1.f, fmtModPhase);
-  }
-  addSlider(kArpStrum,      "Arp Strum",        0.f, 0.f, 1.f, fmtPct, parsePct);
-  addSlider(kArpProbability,"Arp Probability",  1.f, 0.f, 1.f, fmtPct, parsePct);
-  addSwitch(kArpScale, "Arp Scale", 0, 0, 8,
-    [](int v, int) {
-      static const char* names[] = { "Off", "Major", "Minor", "Harmonic min", "Major pent", "Minor pent", "Blues", "Dorian", "Custom" };
-      return juce::String(names[juce::jlimit(0, 8, v)]);
-    });
-  addSwitch(kArpScaleRoot, "Arp Scale Root", 0, 0, 11,
-    [](int v, int) {
-      static const char* names[] = { "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B" };
-      return juce::String(names[juce::jlimit(0, 11, v)]);
-    });
-  addSwitch(kArpCustomScale, "Arp Custom Scale Mask", 0xAB5, 0, 4095,
-    [](int v, int) { return "Mask " + juce::String::toHexString(v).toUpperCase(); });
+  // Arp: chord strum amount and trigger probability
+  addSlider(kArpStrum, "Arp Strum",       0.f, 0.f, 1.f, fmtPct, parsePct);
+  addSlider(kArpProb,  "Arp Probability", 1.f, 0.f, 1.f, fmtPct, parsePct);
+
+  // Scale quantizer (notes are snapped to the scale): type, root and the custom scale mask
+  SFV fmtScaleType = [](float v, int) -> juce::String { return kr106::kScaleDefs[kr106::scaleTypeFromValue(v)].name; };
+  SFV fmtScaleRoot = [](float v, int) -> juce::String { return kr106::kNoteNames[kr106::scaleRootFromValue(v)]; };
+  SFV fmtScaleMask = [](float v, int) -> juce::String {
+    const auto m = kr106::customMaskFromValue(v);
+    juce::String t;
+    for (int i = 0; i < 12; i++) if (m & (1u << i)) t += juce::String(kr106::kNoteNames[i]) + " ";
+    return t.isEmpty() ? juce::String("(none)") : t.trim();
+  };
+  addSlider(kScaleType, "Scale Type", 0.f, 0.f, 1.f, fmtScaleType);
+  addSlider(kScaleRoot, "Scale Root", 0.f, 0.f, 1.f, fmtScaleRoot);
+  addSlider(kScaleMask, "Scale Custom Notes", kr106::valueFromCustomMask(0x0AB5), 0.f, 1.f, fmtScaleMask);   // default: C major
 
   // Build factory presets from compiled-in data (raw 7-bit integer values)
   constexpr int kFactoryValues = sizeof(KR106FactoryPreset::values) / sizeof(int);
@@ -682,7 +669,7 @@ void KR106AudioProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
 
   mModLfo[1].Init(static_cast<float>(sampleRate), 0x7654321u);
 
-  mModLfo[2].Init(static_cast<float>(sampleRate), 0x13579BDFu);
+  mModLfo[2].Init(static_cast<float>(sampleRate), 0x2468ACEu);
 
   mModEnv.Init(static_cast<float>(sampleRate));
 
@@ -1394,17 +1381,6 @@ void KR106AudioProcessor::parameterChanged(int paramIdx, float newValue)
     int mode = juce::roundToInt(newValue);
     mDSP.ForEachVoice([mode](kr106::Voice<float>& v) { v.mOscMode = mode; });
   }
-  else if (paramIdx >= kLfo3Wave)
-  {
-    // These appended parameters control the modulation sources / arpeggiator
-    // extension directly; they are not parameters of the legacy synth DSP.
-    if (paramIdx == kArpStrum) mDSP.mArp.mStrum = juce::jlimit(0.f, 1.f, newValue);
-    else if (paramIdx == kArpProbability) mDSP.mArp.mProbability = juce::jlimit(0.f, 1.f, newValue);
-    else if (paramIdx == kArpScale) mDSP.mArp.mScaleMode = juce::jlimit(0, 8, juce::roundToInt(newValue));
-    else if (paramIdx == kArpScaleRoot) mDSP.mArp.mScaleRoot = juce::jlimit(0, 11, juce::roundToInt(newValue));
-    else if (paramIdx == kArpCustomScale) mDSP.mArp.mCustomScaleMask = juce::jlimit(0, 4095, juce::roundToInt(newValue));
-    // kLfo3Wave..kLfo3Phase are consumed by applyModulation() each audio block.
-  }
   else
   {
     if (paramIdx == kHold)
@@ -1497,48 +1473,58 @@ void KR106AudioProcessor::parameterChanged(int paramIdx, float newValue)
 }
 
 // ---- modulation matrix --------------------------------------------------------------------
-// Curated targets: generic parameters that go straight to the DSP. Power, the 60/106 switch and
-// the settings switches are left out because they have their own side effects.
+// Curated targets (same order as kModTargetNames in KR106ModEngine.h). Most are generic parameters
+// that go straight to the DSP; the LFO / envelope controls of the Mod page are targets too (they
+// are read by this function itself). Power, the 60/106 switch and the settings switches are left out
+// because they have their own side effects.
 static const int kModTargetParam[kr106::kNumModTargets] = {
+  // Filter & amp
   kVcfFreq, kVcfRes, kVcfEnv, kVcfLfo, kHpfFreq, kVcaLevel,
-  kDcoLfo, kDcoPwm, kDcoSub, kDcoNoise, kTuning, kLfoRate,
+  // Oscillator & LFO
+  kDcoLfo, kDcoPwm, kDcoSub, kDcoNoise, kTuning, kPortaRate, kLfoRate,
+  // Envelope
   kEnvA, kEnvD, kEnvS, kEnvR,
+  // Mod LFO 1 / 2 / 3: rate, amount, delay, S/H, smooth, phase
+  kLfo1Rate, kLfo1Amt, kLfo1Delay, kLfo1SH, kLfo1Smooth, kLfo1Phase,
+  kLfo2Rate, kLfo2Amt, kLfo2Delay, kLfo2SH, kLfo2Smooth, kLfo2Phase,
+  kLfo3Rate, kLfo3Amt, kLfo3Delay, kLfo3SH, kLfo3Smooth, kLfo3Phase,
+  // Mod envelope
+  kModEnvAtt, kModEnvDec, kModEnvSStart, kModEnvSTime, kModEnvRel, kModEnvAmp, kModEnvVel,
+  // Effects
   kDelayTime, kDelayFeedback, kDelayMix, kDelayTone, kDelayWow,
   kDDelayTime, kDDelayFeedback, kDDelayMix,
   kCldPos, kCldSize, kCldPitch, kCldDens, kCldMix, kCldRev, kCldDecay, kCldTone,
-  kArpRate, kArpSwing, kArpGate, kArpRatchet, kLimCeil,
-  kLfo1Wave, kLfo1Rate, kLfo1Amt, kLfo1Delay, kLfo1Retrig, kLfo1SH, kLfo1Smooth, kLfo1Phase,
-  kLfo2Wave, kLfo2Rate, kLfo2Amt, kLfo2Delay, kLfo2Retrig, kLfo2SH, kLfo2Smooth, kLfo2Phase,
-  kLfo3Wave, kLfo3Rate, kLfo3Amt, kLfo3Delay, kLfo3Retrig, kLfo3SH, kLfo3Smooth, kLfo3Phase,
-  kModEnvAtt, kModEnvDec, kModEnvSStart, kModEnvSTime, kModEnvRel, kModEnvAmp, kModEnvVel,
-  kPortaRate
+  // Arp & limiter
+  kArpRate, kArpSwing, kArpGate, kArpRatchet, kArpStrum, kArpProb, kLimCeil
 };
+
+// Controls of the Mod page itself: modulating them changes how the sources behave, not the sound directly
+static bool isModPageParam(int p) { return (p >= kLfo1Wave && p <= kModEnvVel) || p >= kLfo3Wave; }
 
 void KR106AudioProcessor::applyModulation(int nFrames, const juce::MidiBuffer& /*midi*/)
 {
-  // same dispatch as the user's control changes (Clouds decay / tone go to the reverb directly)
+  // same dispatch as the user's control changes (Clouds decay / tone go to the reverb directly;
+  // Mod-page controls are only read below, they are not DSP parameters)
   auto sendToDsp = [this](int p, float v)
   {
-    // Modulator controls are applied while calculating the next block's source
-    // values. Sending them to the legacy synth DSP would be a no-op (or unsafe).
-    if ((p >= kLfo1Wave && p <= kModEnvVel) || (p >= kLfo3Wave && p <= kLfo3Phase)) return;
+    if (isModPageParam(p)) return;
     if (p == kCldDecay)     mDSP.mClouds.SetDecay(v);
     else if (p == kCldTone) mDSP.mClouds.SetTone(v);
     else mDSP.SetParam(p, static_cast<double>(v));
   };
+
+  // Value the sources work with: the user value plus whatever the matrix added in the previous block
+  auto pv = [this](int p) { return mModActive[p] ? mModSent[p] : getParamValue(p); };
 
   // Gate: every note event that reaches the synth - keys, MIDI, arpeggiator steps - is counted in the DSP
   if (mDSP.mModNoteOns != mSeenOns)
   {
     mSeenOns = mDSP.mModNoteOns;
     mModEnv.NoteOn(mDSP.mModVel / 127.f);
-    auto mv = [this](int p) {
-      const float norm = mModActive[p] ? mModSent[p] : mParams[p]->getValue();
-      return mParams[p]->convertFrom0to1(norm);
-    };
-    if (mv(kLfo1Retrig) > 0.5f) mModLfo[0].Retrigger(mv(kLfo1Phase));
-    if (mv(kLfo2Retrig) > 0.5f) mModLfo[1].Retrigger(mv(kLfo2Phase));
-    if (mv(kLfo3Retrig) > 0.5f) mModLfo[2].Retrigger(mv(kLfo3Phase));
+    static const int kRetrig[kNumModLfos] = { kLfo1Retrig, kLfo2Retrig, kLfo3Retrig };
+    static const int kPhase[kNumModLfos]  = { kLfo1Phase,  kLfo2Phase,  kLfo3Phase };
+    for (int l = 0; l < kNumModLfos; l++)
+      if (getParamValue(kRetrig[l]) > 0.5f) mModLfo[l].Retrigger(pv(kPhase[l]));
   }
   if (mDSP.mModNoteOffs != mSeenOffs)
   {
@@ -1546,23 +1532,18 @@ void KR106AudioProcessor::applyModulation(int nFrames, const juce::MidiBuffer& /
     if (mDSP.mHeldNotes.none() && mDSP.mKeysDown.none()) mModEnv.NoteOff();   // no key down and nothing latched: release
   }
 
-  // Matrix feedback is deliberately block-delayed: source controls use the last
-  // completed block's modulated values, which avoids recursive same-block cycles.
-  auto mv = [this](int p) {
-    const float norm = mModActive[p] ? mModSent[p] : mParams[p]->getValue();
-    return mParams[p]->convertFrom0to1(norm);
-  };
-  float src[5] = { 0.f, 0.f, 0.f, 0.f, 0.f };
-  src[1] = mModLfo[0].Process(nFrames, mv(kLfo1Wave), mv(kLfo1Rate), mv(kLfo1Amt),
-                              mv(kLfo1Delay), mv(kLfo1SH), mv(kLfo1Smooth), mv(kLfo1Phase));
-  src[2] = mModLfo[1].Process(nFrames, mv(kLfo2Wave), mv(kLfo2Rate), mv(kLfo2Amt),
-                              mv(kLfo2Delay), mv(kLfo2SH), mv(kLfo2Smooth), mv(kLfo2Phase));
-  src[3] = mModLfo[2].Process(nFrames, mv(kLfo3Wave), mv(kLfo3Rate), mv(kLfo3Amt),
-                              mv(kLfo3Delay), mv(kLfo3SH), mv(kLfo3Smooth), mv(kLfo3Phase));
-  src[4] = mModEnv.Process(nFrames, mv(kModEnvAtt), mv(kModEnvDec), mv(kModEnvSStart),
-                           mv(kModEnvSTime), mv(kModEnvRel), mv(kModEnvAmp), mv(kModEnvVel));
+  float src[kr106::kNumModSources] = { 0.f, 0.f, 0.f, 0.f, 0.f };
+  static const int kLfoBase[kNumModLfos] = { kLfo1Wave, kLfo2Wave, kLfo3Wave };
+  for (int l = 0; l < kNumModLfos; l++)
+  {
+    const int b = kLfoBase[l];                      // wave, rate, amount, delay, retrig, S/H, smooth, phase
+    src[kr106::kSrcLfo1 + l] = mModLfo[l].Process(nFrames, getParamValue(b), pv(b + 1), pv(b + 2),
+                                                  pv(b + 3), pv(b + 5), pv(b + 6), pv(b + 7));
+  }
+  src[kr106::kSrcEnv] = mModEnv.Process(nFrames, pv(kModEnvAtt), pv(kModEnvDec), pv(kModEnvSStart),
+                                        pv(kModEnvSTime), pv(kModEnvRel), pv(kModEnvAmp), pv(kModEnvVel));
 
-  for (int s = 1; s < 5; s++) mModSrcLast[s].store(src[s], std::memory_order_relaxed);
+  for (int s = 1; s < kr106::kNumModSources; s++) mModSrcLast[s].store(src[s], std::memory_order_relaxed);
 
   float add[kNumParams] = {};
   bool hit[kNumParams] = {};
@@ -1742,6 +1723,27 @@ void KR106AudioProcessor::setStateInformation(const void* data, int sizeInBytes)
     float val = stream.readFloat();
     if (mParams[i] != nullptr)
       mParams[i]->setValueNotifyingHost(mParams[i]->convertTo0to1(val));
+  }
+
+  // States saved before LFO 3 and the longer target list stored the matrix Source / Target with the
+  // old encodings (index / 3 and index / 36): convert them to the current ones.
+  if (numParams <= kArpStrum)
+  {
+    for (int r = 0; r < kModRows; r++)
+    {
+      auto* ps = mParams[kModRouteBase + 3 * r];
+      auto* pt = mParams[kModRouteBase + 3 * r + 1];
+      if (ps != nullptr && static_cast<int>(kModRouteBase + 3 * r) < numParams)
+      {
+        const int o = juce::jlimit(0, kr106::kOldNumSources - 1, juce::roundToInt(ps->getValue() * (kr106::kOldNumSources - 1)));
+        ps->setValueNotifyingHost(kr106::valueFromModSource(kr106::kOldSourceToNew[o]));
+      }
+      if (pt != nullptr && static_cast<int>(kModRouteBase + 3 * r + 1) < numParams)
+      {
+        const int o = juce::jlimit(0, kr106::kOldNumTargets - 1, juce::roundToInt(pt->getValue() * (kr106::kOldNumTargets - 1)));
+        pt->setValueNotifyingHost(kr106::valueFromModTarget(kr106::kOldTargetToNew[o]));
+      }
+    }
   }
 
   // Backwards compat: old states lack quantize params. Derive from saved
@@ -2119,9 +2121,21 @@ void KR106AudioProcessor::cancelMidiLearn()
 
 void KR106AudioProcessor::clearMidiLearn(int paramIdx)
 {
+  // Back to the factory mapping: with no user CC the hardcoded table (kCCtoParam) answers again,
+  // and a control that has no factory CC simply has none.
   if (paramIdx >= 0 && paramIdx < kNumParams)
     mParamCC[paramIdx] = -1;
+  if (mMidiLearnParam.load(std::memory_order_relaxed) == paramIdx)
+    mMidiLearnParam.store(-1, std::memory_order_release);
+  mMidiLearnResult.store(-1, std::memory_order_relaxed);
   saveGlobalSettings();
+}
+
+int KR106AudioProcessor::getDefaultCCForParam(int paramIdx) const
+{
+  for (int cc = 0; cc < 128; cc++)
+    if (kCCtoParam[cc] == paramIdx) return cc;
+  return -1;
 }
 
 int KR106AudioProcessor::getCCForParam(int paramIdx) const
@@ -2130,9 +2144,7 @@ int KR106AudioProcessor::getCCForParam(int paramIdx) const
   if (paramIdx >= 0 && paramIdx < kNumParams && mParamCC[paramIdx] >= 0)
     return mParamCC[paramIdx];
   // Fall back to hardcoded map
-  for (int cc = 0; cc < 128; cc++)
-    if (kCCtoParam[cc] == paramIdx) return cc;
-  return -1;
+  return getDefaultCCForParam(paramIdx);
 }
 
 juce::AudioProcessorEditor* KR106AudioProcessor::createEditor()

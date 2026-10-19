@@ -139,76 +139,64 @@ private:
 
 
 // ---- matrix: sources and curated targets (choices are stored as 0..1 slider values) ----
+// Source order: None, LFO 1, LFO 2, LFO 3, Envelope. (Saved states from before LFO 3 existed
+// stored Envelope as index 3: kOldSourceToNew converts them.)
 static constexpr int kNumModSources = 5;
+static constexpr int kSrcNone = 0, kSrcLfo1 = 1, kSrcLfo2 = 2, kSrcLfo3 = 3, kSrcEnv = 4;
 static constexpr const char* kModSourceNames[kNumModSources] = { "None", "LFO 1", "LFO 2", "LFO 3", "Envelope" };
-// Preserve the old encoding anchors: None=0, LFO 1=1/3, LFO 2=2/3,
-// Envelope=1. LFO 3 occupies a new anchor at 5/6 so old saved routes remain valid.
-static inline float valueFromModSource(int s)
-{
-  static constexpr float values[kNumModSources] = { 0.f, 1.f / 3.f, 2.f / 3.f, 5.f / 6.f, 1.f };
-  return values[std::max(0, std::min(kNumModSources - 1, s))];
-}
 static inline int modSourceFromValue(float v)
-{
-  v = std::max(0.f, std::min(1.f, v));
-  if (v < 1.f / 6.f) return 0;
-  if (v < 0.5f) return 1;
-  if (v < 0.75f) return 2;
-  if (v < 11.f / 12.f) return 3;
-  return 4;
-}
+{ return std::max(0, std::min(kNumModSources - 1, static_cast<int>(std::round(v * (kNumModSources - 1))))); }
+static inline float valueFromModSource(int s) { return static_cast<float>(s) / (kNumModSources - 1); }
 
-static constexpr int kNumModTargets = 69;
-// Grouped so the target menu is two short menus (group, then item)
+// Targets. Besides the synth and effects, every control of the three LFOs and of the modulation
+// envelope can be modulated, and so can portamento. (A modulated Mod-page control takes effect from
+// the next audio block, so one LFO can drive another - or itself - without any trouble.)
+static constexpr int kNumModTargets = 65;
 static constexpr const char* kModTargetNames[kNumModTargets] = {
+  // Filter & amp
   "VCF Freq", "VCF Res", "VCF Env", "VCF LFO", "HPF Freq", "VCA Level",
-  "DCO LFO", "DCO PWM", "DCO Sub", "DCO Noise", "Tuning", "LFO Rate",
+  // Oscillator & LFO
+  "DCO LFO", "DCO PWM", "DCO Sub", "DCO Noise", "Tuning", "Portamento", "LFO Rate",
+  // Envelope
   "Env Attack", "Env Decay", "Env Sustain", "Env Release",
+  // Mod LFO 1 / 2 / 3
+  "L1 Rate", "L1 Amount", "L1 Delay", "L1 S/H", "L1 Smooth", "L1 Phase",
+  "L2 Rate", "L2 Amount", "L2 Delay", "L2 S/H", "L2 Smooth", "L2 Phase",
+  "L3 Rate", "L3 Amount", "L3 Delay", "L3 S/H", "L3 Smooth", "L3 Phase",
+  // Mod envelope
+  "ME Attack", "ME Decay", "ME S-Start", "ME S-Time", "ME Release", "ME Amp", "ME Velocity",
+  // Effects
   "Tape Time", "Tape Feedback", "Tape Mix", "Tape Tone", "Tape Wow",
   "Digital Time", "Digital Feedback", "Digital Mix",
   "Clouds Position", "Clouds Size", "Clouds Pitch", "Clouds Density", "Clouds Mix", "Clouds Reverb", "Clouds Decay", "Clouds Tone",
-  "Arp Rate", "Arp Swing", "Arp Gate", "Arp Ratchet", "Limiter Ceiling",
-  "LFO 1 Wave", "LFO 1 Rate", "LFO 1 Amount", "LFO 1 Delay", "LFO 1 Retrig", "LFO 1 S/H", "LFO 1 Smooth", "LFO 1 Phase",
-  "LFO 2 Wave", "LFO 2 Rate", "LFO 2 Amount", "LFO 2 Delay", "LFO 2 Retrig", "LFO 2 S/H", "LFO 2 Smooth", "LFO 2 Phase",
-  "LFO 3 Wave", "LFO 3 Rate", "LFO 3 Amount", "LFO 3 Delay", "LFO 3 Retrig", "LFO 3 S/H", "LFO 3 Smooth", "LFO 3 Phase",
-  "Mod Env Attack", "Mod Env Decay", "Mod Env S-Start", "Mod Env S-Time", "Mod Env Release", "Mod Env Amp", "Mod Env Velocity",
-  "Portamento Rate"
+  // Arp & limiter
+  "Arp Rate", "Arp Swing", "Arp Gate", "Arp Ratchet", "Arp Strum", "Arp Probability", "Limiter Ceiling"
 };
-static constexpr int kNumModGroups = 12;
+static constexpr int kNumModGroups = 11;
 static constexpr const char* kModGroupNames[kNumModGroups] = {
-  "Filter & amp", "Oscillator & LFO", "Envelope", "Tape delay", "Digital delay", "Clouds", "Arp & limiter",
-  "LFO 1", "LFO 2", "LFO 3", "Mod envelope", "Portamento"
+  "Filter & amp", "Oscillator & LFO", "Envelope", "Mod LFO 1", "Mod LFO 2", "Mod LFO 3", "Mod envelope",
+  "Tape delay", "Digital delay", "Clouds", "Arp & limiter"
 };
-static constexpr int kModGroupStart[kNumModGroups] = { 0, 6, 12, 16, 21, 24, 32, 37, 45, 53, 61, 68 };
-static constexpr int kModGroupCount[kNumModGroups] = { 6, 6, 4, 5, 3, 8, 5, 8, 8, 8, 7, 1 };
+static constexpr int kModGroupStart[kNumModGroups] = { 0, 6, 13, 17, 23, 29, 35, 42, 47, 50, 58 };
+static constexpr int kModGroupCount[kNumModGroups] = { 6, 7,  4,  6,  6,  6,  7,  5,  3,  8,  7 };
 static inline int modGroupOf(int t)
 { for (int g = 0; g < kNumModGroups; g++) if (t >= kModGroupStart[g] && t < kModGroupStart[g] + kModGroupCount[g]) return g; return 0; }
-// The 37 original target values are retained exactly (t / 36). The 32 new
-// destinations are encoded at unused midpoints so old sessions and host
-// automation continue to select the same legacy targets after this expansion.
-static inline float valueFromModTarget(int t)
-{
-  t = std::max(0, std::min(kNumModTargets - 1, t));
-  if (t < 37) return static_cast<float>(t) / 36.f;
-  return (static_cast<float>(t - 37) + 0.5f) / 36.f;
-}
+static inline float valueFromModTarget(int t) { return static_cast<float>(t) / (kNumModTargets - 1); }
 static inline int modTargetFromValue(float v)
-{
-  v = std::max(0.f, std::min(1.f, v));
-  // Match stored choice anchors before nearest-neighbour decoding. A few new
-  // targets live at midpoints between legacy values, so relying on floating-
-  // point tie-breaking alone could reinterpret a saved route on some hosts.
-  for (int t = 0; t < kNumModTargets; ++t)
-    if (std::fabs(v - valueFromModTarget(t)) < 1.0e-4f) return t;
+{ return std::max(0, std::min(kNumModTargets - 1, static_cast<int>(std::round(v * (kNumModTargets - 1))))); }
 
-  int best = 0;
-  float bestDist = std::fabs(v - valueFromModTarget(0));
-  for (int t = 1; t < kNumModTargets; ++t)
-  {
-    float dist = std::fabs(v - valueFromModTarget(t));
-    if (dist < bestDist) { best = t; bestDist = dist; }
-  }
-  return best;
-}
+// ---- saved states from before LFO 3 / the longer target list ----
+// Old encoding: source = index / 3 (4 sources), target = index / 36 (37 targets).
+static constexpr int kOldNumSources = 4, kOldNumTargets = 37;
+static constexpr int kOldSourceToNew[kOldNumSources] = { kSrcNone, kSrcLfo1, kSrcLfo2, kSrcEnv };
+static constexpr int kOldTargetToNew[kOldNumTargets] = {
+   0,  1,  2,  3,  4,  5,            // VCF Freq .. VCA Level
+   6,  7,  8,  9, 10, 12,            // DCO LFO .. Tuning, LFO Rate (Portamento was inserted before LFO Rate)
+  13, 14, 15, 16,                    // Env A D S R
+  42, 43, 44, 45, 46,                // Tape delay
+  47, 48, 49,                        // Digital delay
+  50, 51, 52, 53, 54, 55, 56, 57,    // Clouds
+  58, 59, 60, 61, 64                 // Arp rate, swing, gate, ratchet, limiter ceiling (Strum / Probability were inserted)
+};
 
 } // namespace kr106

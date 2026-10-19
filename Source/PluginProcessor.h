@@ -50,9 +50,7 @@ enum EParams
   kLimOn, kLimCeil, kLimRel,
   // Clouds (granular)
   kCldPos, kCldSize, kCldPitch, kCldDens, kCldTex, kCldSpread, kCldFb, kCldRev, kCldMix, kCldFreeze,
-  kModFirst,   // modulation block: LFO 1/2, envelope, 12-slot matrix and Clouds controls
-  // Appended parameters must remain after the original kModFirst+62 block to
-  // preserve every saved preset / automation ID from earlier releases.
+  kModFirst,   // modulation block: LFOs, envelope, 12-slot matrix (global, not in presets)
   kNumParams = kModFirst + 75
 };
 
@@ -70,12 +68,17 @@ constexpr int kModRouteBase = kModFirst + 23;     // 12 rows x (source, target, 
 constexpr int kModRows = 12;
 constexpr int kCldDecay = kModFirst + 59, kCldTone = kModFirst + 60;   // Clouds reverb decay (0.5..30 s) and tone
 constexpr int kCldMode = kModFirst + 61;                              // Clouds firmware (0 granular, 1 pitch shift, 2 looping delay, 3 spectral)
-// New controls are appended, never inserted into the legacy modulation block.
-constexpr int kLfo3Wave = kModFirst + 62, kLfo3Rate = kModFirst + 63, kLfo3Amt = kModFirst + 64,
-              kLfo3Delay = kModFirst + 65, kLfo3Retrig = kModFirst + 66, kLfo3SH = kModFirst + 67,
-              kLfo3Smooth = kModFirst + 68, kLfo3Phase = kModFirst + 69;
-constexpr int kArpStrum = kModFirst + 70, kArpProbability = kModFirst + 71, kArpScale = kModFirst + 72,
-              kArpScaleRoot = kModFirst + 73, kArpCustomScale = kModFirst + 74;
+
+// Appended later (indices of older states stay valid)
+constexpr int kArpStrum = kModFirst + 62;     // chord strum: 0 = together .. 1 = spread over the whole step
+constexpr int kArpProb  = kModFirst + 63;     // arp trigger probability (default 100 %)
+constexpr int kScaleType = kModFirst + 64;    // scale quantizer: 0 = off ... custom (see KR106Scale.h)
+constexpr int kScaleRoot = kModFirst + 65;    // C .. B
+constexpr int kScaleMask = kModFirst + 66;    // custom scale: 12-bit mask of allowed pitch classes
+constexpr int kLfo3Wave = kModFirst + 67, kLfo3Rate = kModFirst + 68, kLfo3Amt = kModFirst + 69,
+              kLfo3Delay = kModFirst + 70, kLfo3Retrig = kModFirst + 71, kLfo3SH = kModFirst + 72,
+              kLfo3Smooth = kModFirst + 73, kLfo3Phase = kModFirst + 74;
+constexpr int kNumModLfos = 3;
 
 class KR106AudioProcessor : public juce::AudioProcessor
 {
@@ -170,15 +173,15 @@ public:
   // Keyboard held-note display (audio thread writes, UI timer reads)
   std::bitset<128> mKeyboardHeld;
 
-  // Modulation matrix: sources (LFO 1/2/3, envelope) -> curated parameters
+  // Modulation matrix: sources (LFO 1-3, envelope) -> curated parameters
   void applyModulation(int nFrames, const juce::MidiBuffer& midi);
-  kr106::ModLFO mModLfo[3];
+  kr106::ModLFO mModLfo[kNumModLfos];
   kr106::ModEnv mModEnv;
   uint32_t mSeenOns = 0, mSeenOffs = 0;
-  std::atomic<float> mModSrcLast[5] {{0.f}, {0.f}, {0.f}, {0.f}, {0.f}}; // None, LFO 1/2/3, envelope
+  std::atomic<float> mModSrcLast[kr106::kNumModSources] {{0.f}, {0.f}, {0.f}, {0.f}, {0.f}};   // LFO 1-3, envelope: last values for the LEDs
   // Value a control should show: the modulated value while the matrix drives it, else the user value
   float modDisplayValue(int p) const { return (p >= 0 && p < kNumParams && mModActive[p]) ? mModSent[p] : (mParams[p] ? mParams[p]->getValue() : 0.f); }
-  float getModSourceValue(int s) const { return (s >= 0 && s < 5) ? mModSrcLast[s].load(std::memory_order_relaxed) : 0.f; }
+  float getModSourceValue(int s) const { return (s >= 0 && s < kr106::kNumModSources) ? mModSrcLast[s].load(std::memory_order_relaxed) : 0.f; }
   float mModSent[kNumParams] = {};
   bool  mModActive[kNumParams] = {};
 
@@ -195,8 +198,11 @@ public:
 
   void startMidiLearn(int paramIdx);
   void cancelMidiLearn();
+  // Remove the CC the user assigned to this control: the factory CC (if the control has one) applies again
   void clearMidiLearn(int paramIdx);
-  int getCCForParam(int paramIdx) const;    // returns CC or -1
+  int getCCForParam(int paramIdx) const;    // returns CC or -1 (user assignment first, then the factory one)
+  int getDefaultCCForParam(int paramIdx) const;   // factory CC of this control or -1
+  bool hasUserCC(int paramIdx) const { return paramIdx >= 0 && paramIdx < kNumParams && mParamCC[paramIdx] >= 0; }
 
 private:
   // Parameter listener: push param changes to DSP
