@@ -103,6 +103,8 @@ private:
     }
   }
 
+  void refreshButtons() { mClose.setText(mState == Waiting ? "Cancel" : "OK"); }
+
   void setState(State s)
   {
     mState = s;
