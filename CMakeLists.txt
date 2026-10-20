@@ -60,6 +60,7 @@ target_sources(KR106 PRIVATE
     Source/Controls/KR106LearnBar.h
     Source/Controls/KR106ScaleSheet.h
     Source/Controls/KR106ModEnvDisplay.h
+    Source/Controls/KR106VarigatePanel.h
     Source/Controls/KR106Knob.h
     Source/Controls/KR106Misc.h
     Source/Controls/KR106PresetDisplay.h
@@ -72,6 +73,7 @@ target_sources(KR106 PRIVATE
     Source/DSP/KR106ADSR.h
     Source/DSP/KR106Arpeggiator.h
     Source/DSP/KR106Scale.h
+    Source/DSP/KR106Varigate.h
     Source/DSP/KR106Chorus.h
     Source/DSP/KR106TapeDelay.h
     Source/DSP/KR106LFO.h
@@ -173,6 +175,7 @@ if(APPLE)
         Source/Controls/KR106LearnBar.h
         Source/Controls/KR106ScaleSheet.h
         Source/Controls/KR106ModEnvDisplay.h
+        Source/Controls/KR106VarigatePanel.h
         Source/Controls/KR106Knob.h
         Source/Controls/KR106Misc.h
         Source/Controls/KR106PresetDisplay.h
@@ -185,6 +188,7 @@ if(APPLE)
         Source/DSP/KR106ADSR.h
         Source/DSP/KR106Arpeggiator.h
         Source/DSP/KR106Scale.h
+        Source/DSP/KR106Varigate.h
         Source/DSP/KR106Chorus.h
         Source/DSP/KR106LFO.h
         Source/DSP/KR106Noise.h

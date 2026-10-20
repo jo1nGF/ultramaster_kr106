@@ -169,7 +169,7 @@ public:
         g.fillRoundedRectangle(r, 3.f);
       }
       g.setColour(juce::Colours::white.withAlpha(i == mSel ? 1.f : 0.6f));
-      g.setFont(juce::FontOptions(13.f, i == mSel ? juce::Font::bold : juce::Font::plain));
+      g.setFont(juce::FontOptions(n >= 4 ? 11.5f : 13.f, i == mSel ? juce::Font::bold : juce::Font::plain));
       g.drawText(mNames[i], r.toNearestInt(), juce::Justification::centred);
     }
   }

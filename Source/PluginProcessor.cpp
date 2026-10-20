@@ -1180,6 +1180,10 @@ void KR106AudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
       }
     }
 
+    // the step sequencer follows the host transport when its SYNC button is on
+    mDSP.mSeq.mHostPlaying = mCachedHavePPQ ? mCachedPlaying : false;
+    mDSP.mSeq.mHostBPM = mCachedHaveBPM ? mCachedBPM : 120.0;
+
     if (mArpSyncHost)
     {
       mDSP.mArp.mSyncToHost = true;
@@ -1533,7 +1537,7 @@ void KR106AudioProcessor::applyModulation(int nFrames, const juce::MidiBuffer& /
     if (mDSP.mHeldNotes.none() && mDSP.mKeysDown.none()) mModEnv.NoteOff();   // no key down and nothing latched: release
   }
 
-  float src[kr106::kNumModSources] = { 0.f, 0.f, 0.f, 0.f, 0.f };
+  float src[kr106::kNumModSources] = {};
   static const int kLfoBase[kNumModLfos] = { kLfo1Wave, kLfo2Wave, kLfo3Wave };
   for (int l = 0; l < kNumModLfos; l++)
   {
@@ -1543,6 +1547,9 @@ void KR106AudioProcessor::applyModulation(int nFrames, const juce::MidiBuffer& /
   }
   src[kr106::kSrcEnv] = mModEnv.Process(nFrames, pv(kModEnvAtt), pv(kModEnvDec), pv(kModEnvSStart),
                                         pv(kModEnvSTime), pv(kModEnvRel), pv(kModEnvAmp), pv(kModEnvVel));
+
+  for (int g = 0; g < kr106::kVgGates; g++)                      // the gate tracks of the Seq page
+    src[kr106::kSrcGate1 + g] = mDSP.mSeq.mGateOut[g].load(std::memory_order_relaxed);
 
   for (int s = 1; s < kr106::kNumModSources; s++) mModSrcLast[s].store(src[s], std::memory_order_relaxed);
   mModEnvStage.store(mModEnv.StageIndex(), std::memory_order_relaxed);
@@ -1560,6 +1567,12 @@ void KR106AudioProcessor::applyModulation(int nFrames, const juce::MidiBuffer& /
     const int p = kModTargetParam[t];
     add[p] += src[s] * amt;
     hit[p] = true;
+  }
+
+  // glide of the step the sequencer plays: opens Porta for that note (Porta mode has to be on)
+  {
+    const float glide = mDSP.mSeq.mGlideOut.load(std::memory_order_relaxed);
+    if (glide > 0.f) { add[kPortaRate] += glide; hit[kPortaRate] = true; }
   }
 
   for (int t = 0; t < kr106::kNumModTargets; t++)
@@ -1701,6 +1714,15 @@ void KR106AudioProcessor::getStateInformation(juce::MemoryBlock& destData)
   // Matrix encoding version (Source / Target choices); older states have no such block
   stream.writeInt(0x4B523430); // 'KR40' magic
   stream.writeInt(kModFormat);
+
+  // Step sequencer: live pattern, 100 presets, songs, tempo
+  {
+    std::vector<uint8_t> seq;
+    mDSP.mSeq.Serialize(seq);
+    stream.writeInt(0x4B523530); // 'KR50' magic
+    stream.writeInt(static_cast<int>(seq.size()));
+    stream.write(seq.data(), seq.size());
+  }
 }
 
 void KR106AudioProcessor::setStateInformation(const void* data, int sizeInBytes)
@@ -1772,7 +1794,19 @@ void KR106AudioProcessor::setStateInformation(const void* data, int sizeInBytes)
           int n = juce::jlimit(0, 128, stream.readInt());
           for (int i = 0; i < n && !stream.isExhausted(); i++)
             latched.push_back(static_cast<uint8_t>(stream.readByte()));
-          if (!stream.isExhausted() && stream.readInt() == 0x4B523430) modFormat = stream.readInt();
+          if (!stream.isExhausted() && stream.readInt() == 0x4B523430)
+          {
+            modFormat = stream.readInt();
+            if (!stream.isExhausted() && stream.readInt() == 0x4B523530)
+            {
+              const int n = stream.readInt();
+              if (n > 0 && n < 4000000)
+              {
+                std::vector<uint8_t> buf(static_cast<size_t>(n));
+                if (stream.read(buf.data(), n) == n) mDSP.mSeq.Deserialize(buf.data(), buf.size());
+              }
+            }
+          }
         }
       }
       else
@@ -1810,8 +1844,9 @@ void KR106AudioProcessor::setStateInformation(const void* data, int sizeInBytes)
 
   // The matrix Source / Target choices are stored as index / (count - 1), and the lists have grown:
   //   before LFO 3 (state has <= kArpStrum params): 4 sources, 37 targets in a different order
-  //   with LFO 3 but before Arp Scale / Arp Root (no 'KR40' block): 65 targets, same order as now
-  // Convert both to the current encoding.
+  //   modFormat 0 (no 'KR40' block): 5 sources, 65 targets in the current order
+  //   modFormat 3: 5 sources (Gate 1-8 came after), targets as now
+  // Convert all of them to the current encoding.
   if (modFormat < kModFormat)
   {
     const bool v1 = numParams <= kArpStrum;
@@ -1819,12 +1854,13 @@ void KR106AudioProcessor::setStateInformation(const void* data, int sizeInBytes)
     {
       auto* ps = mParams[kModRouteBase + 3 * r];
       auto* pt = mParams[kModRouteBase + 3 * r + 1];
-      if (ps != nullptr && kModRouteBase + 3 * r < numParams && v1)
+      if (ps != nullptr && kModRouteBase + 3 * r < numParams)
       {
-        const int o = juce::jlimit(0, kr106::kOldNumSources - 1, juce::roundToInt(ps->getValue() * (kr106::kOldNumSources - 1)));
-        ps->setValueNotifyingHost(kr106::valueFromModSource(kr106::kOldSourceToNew[o]));
+        const int o = v1 ? kr106::kOldSourceToNew[juce::jlimit(0, kr106::kOldNumSources - 1, juce::roundToInt(ps->getValue() * (kr106::kOldNumSources - 1)))]
+                         : juce::jlimit(0, 4, juce::roundToInt(ps->getValue() * 4.f));
+        ps->setValueNotifyingHost(kr106::valueFromModSource(o));
       }
-      if (pt != nullptr && kModRouteBase + 3 * r + 1 < numParams)
+      if (pt != nullptr && modFormat < 3 && kModRouteBase + 3 * r + 1 < numParams)
       {
         const int t = v1 ? kr106::kOldTargetToNew[juce::jlimit(0, kr106::kOldNumTargets - 1, juce::roundToInt(pt->getValue() * (kr106::kOldNumTargets - 1)))]
                          : juce::jlimit(0, kr106::kNumModTargets - 1, juce::roundToInt(pt->getValue() * 64.f));

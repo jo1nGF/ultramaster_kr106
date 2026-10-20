@@ -16,6 +16,7 @@
 #include "KR106VcfFreqJ6.h"
 #include "KR106Arpeggiator.h"
 #include "KR106Scale.h"
+#include "KR106Varigate.h"
 #include "KR106Chorus.h"
 #include "KR106TapeDelay.h"
 #include "KR106DigitalDelay.h"
@@ -648,6 +649,11 @@ public:
       [this](int note, int offset) { SendToSynth(note, true,  127, offset); },
       [this](int note, int offset) { SendToSynth(note, false, 0,   offset); });
 
+    // Step sequencer (Seq page): plays notes straight into the voices, like the arpeggiator does
+    mSeq.Process(nFrames,
+      [this](int note, int offset) { SendToSynth(note, true,  100, offset); },
+      [this](int note, int offset) { SendToSynth(note, false, 0,   offset); });
+
     // Drift walk update (per buffer is plenty for sub-Hz LFOs).
     {
       float dt = static_cast<float>(nFrames) / mSampleRate;
@@ -878,6 +884,7 @@ public:
     mFloorRipple.Reset();
 
     mArp.SetSampleRate(mSampleRate);
+    mSeq.SetSampleRate(mSampleRate);
     mNoise.SetSampleRate(mSampleRate);
     mLFOBuffer.resize(blockSize);
     mLFORawBuffer.resize(blockSize);
@@ -969,6 +976,7 @@ public:
   kr106::Clouds mClouds;
   kr106::Limiter mLimiter;
   kr106::Arpeggiator mArp;
+  kr106::VarigateSeq mSeq;                 // Varigate-style step sequencer (Seq page)
 
   float mVcaLevel = 1.f;
   float mVcaLevelSmooth = 1.f;
@@ -1131,6 +1139,7 @@ public:
   void AllNotesOff()
   {
     mArp.Reset();
+    mSeq.ForgetNotes();
     ResetQuant();
     mKeysDown.reset();
     mHeldNotes.reset();
@@ -1144,6 +1153,7 @@ public:
   void PowerOff()
   {
     mArp.Reset();
+    mSeq.Reset();
     ResetQuant();
     mKeysDown.reset();
     mHeldNotes.reset();

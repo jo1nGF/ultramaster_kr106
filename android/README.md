@@ -240,3 +240,41 @@ parte dos presets e não muda ao trocar de som. Mix em 0 deixa o som idêntico a
 
 GPL-3.0 (como o projeto original e o JUCE). Se distribuir o APK, publique o código-fonte
 da sua versão.
+
+## Aba Seq: sequenciador no estilo Varigate 8+
+
+Uma quarta aba, **Seq**, com um sequenciador de passos modelado no Malekko Varigate 8+.
+
+- **16 sliders** horizontais em duas colunas de 8 (passos 1 a 8 e 9 a 16). Cada slider tem um **LED
+  na própria alça**: na página GATE ele acende quando o passo está ligado e pisca forte enquanto o
+  passo toca; nas outras páginas o brilho acompanha o valor do passo.
+- **8 trilhas de gate + 2 trilhas de CV** (CV 1 e CV 2). Escolha a trilha na fileira de 10 botões de
+  baixo (o LED de cada botão acende com o gate). As trilhas de CV tocam notas nas vozes do Juno.
+- **Páginas dos sliders** (botões da esquerda): **GATE** (liga/desliga o passo; toque ou arraste
+  para pintar vários passos), **PROB** (probabilidade do passo), **RPT** (repetições, de x1 a x8,
+  como ratchet), **DLY** (atraso dentro do passo), **PW** (largura do pulso), **NOTE** (nota, já
+  quantizada na escala) e **GLIDE** (deslizamento por passo, abre o Porta enquanto aquela nota toca;
+  o modo Porta precisa estar ligado).
+- **TRACK**: os sliders viram os ajustes da trilha: **DIV/MUL** (÷8 a ×8, relógio próprio de cada
+  trilha), **LENGTH** (1 a 16 passos), **MODE** (Forward, Reverse, Pendulum, Random), **KEY** (tônica)
+  e **+0 a +11** (as 12 notas da escala, ligadas ou desligadas).
+- **CV ligado ou independente**: o botão **LINK** (com uma trilha de CV selecionada) faz a CV seguir
+  um dos 8 gates (toca a nota quando aquele gate dispara, com a probabilidade, o repeat e o atraso
+  dele) ou rodar sozinha com relógio próprio (uma nota a cada passo).
+- **MUTE** (com ele ligado, os botões de trilha silenciam/reativam a trilha), **CLEAR** (armado,
+  o próximo botão de trilha apaga a trilha), **RND** (sorteia a página atual da trilha; em TRACK
+  sorteia tudo), **RND ALL**, **ROT <** e **ROT >** (giram os passos), **FREEZE** (congela o
+  aleatório: probabilidades e direção Random passam a se repetir iguais a cada ciclo, e RND fica
+  desativado).
+- **TEMPO**: arraste para os lados; **SYNC** segue o transporte do host (liga e para junto com ele).
+  **RUN/STOP** e **RESET** (volta ao passo 1).
+- **100 presets** (10 bancos de 10): toque num banco e num preset para chamar. **SAVE** armado + preset
+  grava o padrão atual. **SONG** toca em sequência a lista de presets do banco (o próximo entra quando a
+  trilha de ciclo mais longo termina); **S.PRG** + presets monta a lista, e **CLEAR** com S.PRG ligado
+  esvazia.
+- **Modulação:** os 8 gates viram fontes na matriz (**Gate 1 a Gate 8**), então cada trilha de gate
+  pode mexer em qualquer destino (filtro, PWM, delay, Strum...).
+- Tudo é salvo no estado do plugin (padrão atual, 100 presets, songs, tempo e SYNC).
+
+Ainda não estão nesta versão: gravação de gate ao vivo, o modo Gate+Delay, a escala por banco e
+as saídas CLK OUT / END.

@@ -172,11 +172,11 @@ KR106Editor::KR106Editor(KR106AudioProcessor& p)
         add(new KR106IconButton(gearSvg, [this]() { showSettingsMenu(); }), 832, 17, 30, 30);
     }
     mScope = add(new KR106Scope(&p), 262, 3, 128, 74);
-    scaled(mScope, 0.78f);
+    scaled(mScope, 0.62f);
 
     // page tabs: Synth | FX
-    mPageTabs = add(new KR106TouchTabs(juce::StringArray { "Synth", "FX", "Mod" }, [this](int i) { setPage(i); }),
-                    366, 19, 108, 28);
+    mPageTabs = add(new KR106TouchTabs(juce::StringArray { "Synth", "FX", "Mod", "Seq" }, [this](int i) { setPage(i); }),
+                    344, 19, 130, 28);
 
     auto* tune = knob(kTuning, 490, 29, "Tune", 1.55f);
     tune->setSnapCenter(true); tune->setGearing(205.f);
@@ -536,6 +536,16 @@ KR106Editor::KR106Editor(KR106AudioProcessor& p)
     }
     const int lastModChild = mContent.getNumChildComponents();
     for (int i = firstModChild; i < lastModChild; i++) mPageCtrls[2].push_back(mContent.getChildComponent(i));
+
+    // ------------------------------------------------------------------
+    // PAGE 4: SEQ (Varigate-style step sequencer)
+    // ------------------------------------------------------------------
+    {
+        const int firstSeqChild = mContent.getNumChildComponents();
+        add(new KR106VarigatePanel(p), 0, kRowA, kBaseWidth, kBaseHeight - kRowA);
+        for (int i = firstSeqChild; i < mContent.getNumChildComponents(); i++)
+            mPageCtrls[3].push_back(mContent.getChildComponent(i));
+    }
     curPage = 0;
     setPage(0);
 
@@ -1419,8 +1429,8 @@ void KR106Editor::paintTouchBackground(juce::Graphics& g)
 
 void KR106Editor::setPage(int page)
 {
-    mPage = juce::jlimit(0, 2, page);
-    for (int g = 0; g < 3; g++)
+    mPage = juce::jlimit(0, 3, page);
+    for (int g = 0; g < 4; g++)
         for (auto* ctrl : mPageCtrls[g]) ctrl->setVisible(g == mPage);
     if (mPageTabs) mPageTabs->setSelected(mPage);
     repaint();

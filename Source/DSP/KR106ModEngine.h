@@ -166,11 +166,13 @@ private:
 
 
 // ---- matrix: sources and curated targets (choices are stored as 0..1 slider values) ----
-// Source order: None, LFO 1, LFO 2, LFO 3, Envelope. (Saved states from before LFO 3 existed
-// stored Envelope as index 3: kOldSourceToNew converts them.)
-static constexpr int kNumModSources = 5;
-static constexpr int kSrcNone = 0, kSrcLfo1 = 1, kSrcLfo2 = 2, kSrcLfo3 = 3, kSrcEnv = 4;
-static constexpr const char* kModSourceNames[kNumModSources] = { "None", "LFO 1", "LFO 2", "LFO 3", "Envelope" };
+// Source order: None, LFO 1, LFO 2, LFO 3, Envelope, Gate 1 ... Gate 8 (the gate tracks of the Seq page).
+// (Saved states from before LFO 3 existed stored Envelope as index 3: kOldSourceToNew converts them.)
+static constexpr int kNumModSources = 13;
+static constexpr int kSrcNone = 0, kSrcLfo1 = 1, kSrcLfo2 = 2, kSrcLfo3 = 3, kSrcEnv = 4, kSrcGate1 = 5;
+static constexpr const char* kModSourceNames[kNumModSources] = {
+  "None", "LFO 1", "LFO 2", "LFO 3", "Envelope",
+  "Gate 1", "Gate 2", "Gate 3", "Gate 4", "Gate 5", "Gate 6", "Gate 7", "Gate 8" };
 static inline int modSourceFromValue(float v)
 { return std::max(0, std::min(kNumModSources - 1, static_cast<int>(std::round(v * (kNumModSources - 1))))); }
 static inline float valueFromModSource(int s) { return static_cast<float>(s) / (kNumModSources - 1); }

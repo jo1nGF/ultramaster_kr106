@@ -18,6 +18,7 @@
 #include "Controls/KR106LearnBar.h"
 #include "Controls/KR106ScaleSheet.h"
 #include "Controls/KR106ModEnvDisplay.h"
+#include "Controls/KR106VarigatePanel.h"
 
 class KR106Editor : public juce::AudioProcessorEditor,
                     private juce::Timer
@@ -76,7 +77,7 @@ private:
 
     // Two pages: 0 = Synth, 1 = FX (delays, Clouds, limiter, recorder)
     int mPage = 0;
-    std::vector<juce::Component*> mPageCtrls[3];
+    std::vector<juce::Component*> mPageCtrls[4];
     std::vector<KR106TouchChoice*> mModChoices;      // matrix / LFO selectors, refreshed on the timer
     void showModTargetMenu(int row, juce::Rectangle<int> anchor);
     KR106TouchTabs* mPageTabs = nullptr;
