@@ -295,11 +295,12 @@ public:
                     juce::MessageManager::callAsync([cb = std::move(cb), id]() { cb(id); });
                 return;
             }
+            // The callback may delete this menu (a choice menu closes itself when something is picked,
+            // and may open another one). So the menu is brought up to date FIRST, the callback runs on a
+            // copy, and nothing of this object is touched after it returns.
             if (mItems[idx].radio)
             {
-                // Radio item: untick siblings, tick this one, stay open
-                if (mOnSelect) mOnSelect(id);
-                // Find group bounds (adjacent radio items, delimited by separators)
+                // Radio item: untick siblings, tick this one
                 int groupStart = idx, groupEnd = idx;
                 while (groupStart > 0 && !mItems[groupStart - 1].separator)
                     groupStart--;
@@ -307,13 +308,15 @@ public:
                     groupEnd++;
                 for (int j = groupStart; j <= groupEnd; j++)
                     if (mItems[j].radio) mItems[j].ticked = (j == idx);
-                repaint();
-                return;
             }
-            // Toggle item: fire callback, update tick, stay open
-            if (mOnSelect) mOnSelect(id);
-            mItems[idx].ticked = !mItems[idx].ticked;
+            else
+            {
+                // Toggle item: flip the tick, the menu stays open
+                mItems[idx].ticked = !mItems[idx].ticked;
+            }
             repaint();
+            auto cb = mOnSelect;
+            if (cb) cb(id);
             return;
         }
         // Click outside menu or on separator/disabled item — dismiss

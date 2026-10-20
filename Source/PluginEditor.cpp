@@ -1047,8 +1047,11 @@ void KR106Editor::showChoiceMenu(const juce::StringArray& names, int current,
     mChoiceMenu = std::make_unique<KR106MenuSheet>(std::move(items), mMenuTypeface,
         [this, onPick](int r)
         {
+            // resetting the menu destroys this very lambda (and the onPick it captured), so keep
+            // our own copy of onPick for the call below
+            auto pick = onPick;
             mChoiceMenu.reset();
-            if (r > 0 && onPick) onPick(r - 1);
+            if (r > 0 && pick) pick(r - 1);
         });
 
     int menuW = mChoiceMenu->calcWidth(), menuH = mChoiceMenu->calcHeight();
@@ -1433,6 +1436,7 @@ void KR106Editor::showModTargetMenu(int row, juce::Rectangle<int> anchor)
     showChoiceMenu(groups, kr106::modGroupOf(curT), anchor,
         [this, pT, anchor](int g)
         {
+            if (g < 0 || g >= kr106::kNumModGroups) return;
             const int start = kr106::kModGroupStart[g], n = kr106::kModGroupCount[g];
             juce::StringArray items;
             for (int k = 0; k < n; k++) items.add(kr106::kModTargetNames[start + k]);
