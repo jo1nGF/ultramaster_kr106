@@ -243,38 +243,44 @@ da sua versão.
 
 ## Aba Seq: sequenciador no estilo Varigate 8+
 
-Uma quarta aba, **Seq**, com um sequenciador de passos modelado no Malekko Varigate 8+.
+Uma quarta aba, **Seq**, com um sequenciador de passos no estilo do painel do Malekko Varigate 8+.
 
-- **16 sliders** horizontais em duas colunas de 8 (passos 1 a 8 e 9 a 16). Cada slider tem um **LED
-  na própria alça**: na página GATE ele acende quando o passo está ligado e pisca forte enquanto o
-  passo toca; nas outras páginas o brilho acompanha o valor do passo.
-- **8 trilhas de gate + 2 trilhas de CV** (CV 1 e CV 2). Escolha a trilha na fileira de 10 botões de
-  baixo (o LED de cada botão acende com o gate). As trilhas de CV tocam notas nas vozes do Juno.
-- **Páginas dos sliders** (botões da esquerda): **GATE** (liga/desliga o passo; toque ou arraste
-  para pintar vários passos), **PROB** (probabilidade do passo), **RPT** (repetições, de x1 a x8,
-  como ratchet), **DLY** (atraso dentro do passo), **PW** (largura do pulso), **NOTE** (nota, já
-  quantizada na escala) e **GLIDE** (deslizamento por passo, abre o Porta enquanto aquela nota toca;
-  o modo Porta precisa estar ligado).
-- **TRACK**: os sliders viram os ajustes da trilha: **DIV/MUL** (÷8 a ×8, relógio próprio de cada
-  trilha), **LENGTH** (1 a 16 passos), **MODE** (Forward, Reverse, Pendulum, Random), **KEY** (tônica)
-  e **+0 a +11** (as 12 notas da escala, ligadas ou desligadas).
-- **CV ligado ou independente**: o botão **LINK** (com uma trilha de CV selecionada) faz a CV seguir
-  um dos 8 gates (toca a nota quando aquele gate dispara, com a probabilidade, o repeat e o atraso
-  dele) ou rodar sozinha com relógio próprio (uma nota a cada passo).
-- **MUTE** (com ele ligado, os botões de trilha silenciam/reativam a trilha), **CLEAR** (armado,
-  o próximo botão de trilha apaga a trilha), **RND** (sorteia a página atual da trilha; em TRACK
-  sorteia tudo), **RND ALL**, **ROT <** e **ROT >** (giram os passos), **FREEZE** (congela o
-  aleatório: probabilidades e direção Random passam a se repetir iguais a cada ciclo, e RND fica
-  desativado).
-- **TEMPO**: arraste para os lados; **SYNC** segue o transporte do host (liga e para junto com ele).
-  **RUN/STOP** e **RESET** (volta ao passo 1).
-- **100 presets** (10 bancos de 10): toque num banco e num preset para chamar. **SAVE** armado + preset
-  grava o padrão atual. **SONG** toca em sequência a lista de presets do banco (o próximo entra quando a
-  trilha de ciclo mais longo termina); **S.PRG** + presets monta a lista, e **CLEAR** com S.PRG ligado
+- **Sliders:** 16 sliders em duas colunas de 8 (passos 1 a 8 e 9 a 16). Cada slider tem uma alça preta
+  com um **LED vermelho retangular grande**, e uma **tira branca** embaixo com a informação dele:
+  "STEP 5  PROB 80%" nas páginas normais e, com **TRACK** ligado, a função que o slider controla
+  (DIVIDE/MULTIPLY, SEQ LENGTH, SEQ MODE, KEY, ROOT, ROOT + 1 a ROOT + 11) com o valor atual. Na
+  página GATE o LED mostra o passo ligado e pisca forte enquanto o passo toca; nas outras páginas o
+  brilho acompanha o valor.
+- **Botões:** redondos, acinzentados como no original, e **acendem** (branco azulado) quando ativos.
+  Linhas: PROB RPT DLY / PW NOTE GLIDE / TRACK MUTE CLEAR / SONG TEMPO RUN-STOP / BANK SAVE RECALL, e na
+  fileira dos jacks RND, FREEZE e END. Tocar de novo no botão de página aceso volta para a página GATE
+  (há também um botãozinho GATE embaixo, à esquerda).
+- **Painel da esquerda:** **CLK IN** (liga o SYNC com o host, com LED), **RESET**, **CLK OUT** (com LED
+  que pisca a cada semicolcheia) e o **medidor de 12 LEDs** com as notas C a B. O medidor mostra o valor do
+  último slider tocado (barra de LEDs) ou, na página NOTE e no KEY, a nota; depois mostra o passo que
+  está tocando. Ao lado de cada LED há a tecla da escala (branca ou preta), acesa quando a nota
+  faz parte da escala do padrão.
+- **Fileira de baixo:** GATE 1 a 8, CV 1 e CV 2. O LED vermelho de cada um mostra o gate; o botão
+  aceso é a trilha selecionada. Depois de **BANK**, **SAVE** ou **RECALL**, os mesmos botões escolhem o
+  banco ou o preset (1 a 10): BANK + botão = banco; SAVE + botão grava o padrão atual nesse preset;
+  RECALL + botão carrega.
+- **Trilhas:** 8 de gate e 2 de CV (que tocam notas nas vozes do Juno). Cada trilha tem relógio
+  próprio (÷8 a ×8), tamanho de 1 a 16, direção (Forward, Reverse, Pendulum, Random) e mute.
+- **Páginas por passo:** **GATE** (toque ou arraste para pintar vários passos), **PROB**, **RPT**
+  (x1 a x8), **DLY**, **PW**, **NOTE** (já na escala) e **GLIDE** (abre o Porta enquanto aquela nota
+  toca; o modo Porta precisa estar ligado).
+- **CV ligada ou independente:** o botão pequeno **LINK** (com uma CV selecionada) faz a CV seguir um
+  dos 8 gates ou rodar sozinha com relógio próprio.
+- **Outros:** **MUTE** (com ele aceso os botões de trilha silenciam a trilha), **CLEAR** (armado,
+  o próximo botão de trilha apaga a trilha), **RND** (sorteia a página atual; em TRACK sorteia tudo),
+  **RND ALL**, **ROT <** e **ROT >** (giram os passos), **FREEZE** (as probabilidades e a direção
+  Random passam a se repetir iguais a cada ciclo, e RND fica desativado), **TEMPO** (arraste o
+  knob; com SYNC ligado segue o BPM do host), **RUN/STOP**, **END** (LED que pisca quando a trilha
+  mais longa termina um ciclo).
+- **SONG** toca em sequência a lista de presets do banco (o próximo entra quando a trilha de ciclo mais
+  longo termina). **S.PRG** + botões de trilha (1 a 10) monta a lista, e **CLEAR** com S.PRG ligado
   esvazia.
-- **Modulação:** os 8 gates viram fontes na matriz (**Gate 1 a Gate 8**), então cada trilha de gate
-  pode mexer em qualquer destino (filtro, PWM, delay, Strum...).
+- **Modulação:** os 8 gates viram fontes na matriz (**Gate 1 a Gate 8**).
 - Tudo é salvo no estado do plugin (padrão atual, 100 presets, songs, tempo e SYNC).
 
-Ainda não estão nesta versão: gravação de gate ao vivo, o modo Gate+Delay, a escala por banco e
-as saídas CLK OUT / END.
+Ainda não estão nesta versão: gravação de gate ao vivo, o modo Gate+Delay e a escala por banco.

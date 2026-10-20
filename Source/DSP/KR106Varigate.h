@@ -142,6 +142,8 @@ public:
   std::atomic<uint8_t> mHigh[kVgTracks];             // gate is high
   std::atomic<float> mGateOut[kVgGates];             // 0 / 1
   std::atomic<float> mGlideOut { 0.f };              // glide of the CV step that sounds (0..1)
+  std::atomic<uint8_t> mClkOut { 0 };                // CLK OUT LED: flashes on every master clock tick (16th note)
+  std::atomic<uint8_t> mEndOut { 0 };                // END LED: flashes when the longest track finishes a cycle
 
   VarigateSeq()
   {
@@ -271,6 +273,7 @@ public:
     for (int i = 0; i < kVgTracks; i++) { mPos[i].store(-1); mHigh[i].store(0); }
     for (int i = 0; i < kVgGates; i++) mGateOut[i].store(0.f);
     mGlideOut.store(0.f);
+    mClkOut.store(0); mEndOut.store(0); mClkPhase = 0.0; mEndHold = 0;
     mWasRun = false;
   }
 
@@ -294,8 +297,12 @@ public:
     const double inc = std::max(1.0, bpm) * 4.0 / 60.0 / std::max(1.0, mSampleRate);   // 16th notes per sample
     const bool freeze = mFreeze.load();
 
+    const int endSamples = static_cast<int>(0.08 * mSampleRate);
     for (int s = 0; s < nFrames; s++)
     {
+      mClkPhase += inc;
+      if (mClkPhase >= 1.0) mClkPhase -= 1.0;
+      if (mEndHold > 0) mEndHold--;
       for (int tr = 0; tr < kVgTracks; tr++)
       {
         Chan& c = mCh[tr];
@@ -305,7 +312,7 @@ public:
         {
           c.phase -= 1.0;
           if (c.phase >= 1.0) c.phase = 0.0;
-          AdvanceStep(tr, freeze);
+          AdvanceStep(tr, freeze, endSamples);
         }
       }
       for (int tr = 0; tr < kVgTracks; tr++)
@@ -362,6 +369,8 @@ private:
   Chan mCh[kVgTracks];
   double mSampleRate = 44100.0;
   bool mWasRun = false;
+  double mClkPhase = 0.0;
+  int mEndHold = 0;                                  // samples left of the END flash
   uint32_t mRng = 0x2545F491u, mFreezeSeed = 0x1234567u;
 
   uint32_t NextRand() { mRng ^= mRng << 13; mRng ^= mRng >> 17; mRng ^= mRng << 5; return mRng; }
@@ -385,7 +394,7 @@ private:
   }
   float DivFactor(int tr) const { return kVgDivFactor[std::min<int>(kVgNumDiv - 1, mPat.t[tr].div.get())]; }
 
-  void AdvanceStep(int tr, bool freeze)
+  void AdvanceStep(int tr, bool freeze, int endSamples)
   {
     Chan& c = mCh[tr];
     VgTrack& t = mPat.t[tr];
@@ -434,7 +443,11 @@ private:
     }
 
     // SONG: the track with the longest cycle decides when the next preset starts
-    if (mSongOn.load() && c.stepCount > 0 && (c.stepCount % len) == 0 && tr == SongLeader()) SongAdvance();
+    if (tr < kVgGates && c.stepCount > 0 && (c.stepCount % len) == 0 && tr == SongLeader())
+    {
+      mEndHold = endSamples;                                              // END: the longest track finished a cycle
+      if (mSongOn.load()) SongAdvance();
+    }
   }
 
   int SongLeader() const
@@ -485,6 +498,8 @@ private:
       else if (c.sounding >= 0) glide = std::max(glide, c.glide);
     }
     mGlideOut.store(glide);
+    mClkOut.store((mWasRun && mClkPhase < 0.3) ? 1 : 0);
+    mEndOut.store(mEndHold > 0 ? 1 : 0);
   }
 
   static size_t PatternBytes() { return static_cast<size_t>(kVgTracks) * (7 * kVgSteps + 5) + 3; }
