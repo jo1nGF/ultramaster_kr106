@@ -18,7 +18,7 @@
 #include "Controls/KR106LearnBar.h"
 #include "Controls/KR106ScaleSheet.h"
 #include "Controls/KR106ModEnvDisplay.h"
-#include "Controls/KR106VarigatePanel.h"
+#include "Controls/KR106SeqPage.h"
 
 class KR106Editor : public juce::AudioProcessorEditor,
                     private juce::Timer

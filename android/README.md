@@ -243,7 +243,12 @@ da sua versão.
 
 ## Aba Seq: sequenciador no estilo Varigate 8+
 
-Uma quarta aba, **Seq**, com um sequenciador de passos no estilo do painel do Malekko Varigate 8+.
+Uma quarta aba, **Seq**, com dois sequenciadores de passos que se alternam pelo seletor
+**VARIGATE | METROPOLIX** no canto inferior esquerdo da aba (só o escolhido toca; ao trocar, o outro para e
+suas notas são soltas). A escolha é salva com o estado. Esta seção descreve o Varigate; o Metropolix está
+na seção seguinte.
+
+O Varigate, no estilo do painel do Malekko Varigate 8+:
 
 - **Sliders:** 16 sliders em duas colunas de 8 (passos 1 a 8 e 9 a 16). Cada slider tem uma alça preta
   com um **LED vermelho retangular grande**, e uma **tira branca** embaixo com a informação dele:
@@ -280,7 +285,45 @@ Uma quarta aba, **Seq**, com um sequenciador de passos no estilo do painel do Ma
 - **SONG** toca em sequência a lista de presets do banco (o próximo entra quando a trilha de ciclo mais
   longo termina). **S.PRG** + botões de trilha (1 a 10) monta a lista, e **CLEAR** com S.PRG ligado
   esvazia.
-- **Modulação:** os 8 gates viram fontes na matriz (**Gate 1 a Gate 8**).
+- **Modulação:** os 8 gates viram fontes na matriz (**Seq 1 a Seq 8**).
 - Tudo é salvo no estado do plugin (padrão atual, 100 presets, songs, tempo e SYNC).
 
 Ainda não estão nesta versão: gravação de gate ao vivo, o modo Gate+Delay e a escala por banco.
+
+
+## Aba Seq, modo Metropolix
+
+O seletor **METROPOLIX** troca a aba para um sequenciador no estilo do Intellijel Metropolix (manual v1.6),
+com o painel prateado do original.
+
+- **Os 8 stages:** à direita, 8 sliders de **PITCH** (alça preta com LED retangular vermelho; o stage que toca
+  acende), 8 de **PULSE COUNT** (1 a 8 pulsos de clock por stage) e 8 de **GATE TYPE** (HOLD, MULTI, SINGLE,
+  REST, de cima para baixo). Esses três valem para as duas trilhas.
+- **2 trilhas de nota (TRK 1 e TRK 2):** tocam nas vozes do Juno, cada uma do seu jeito: **ORDER** (as 20 ordens
+  do manual, de Linear a Random, direta ou reversa; toque no encoder para inverter), **LEN** (stages, offset e
+  pulsos, "Auto" ou até 64), **DIV** (divisor de clock e divisor de pulsos), **SWING** (50 a 78%), **SLIDE**
+  (quantidade e tipo Analog, Tempo ou Acid), **GATE** (comprimento até Hold, escala e "stretching").
+- **EDIT:** toque em EDIT, depois num botão de função da fileira de baixo (**SLIDE, SKIP, PITCH, GATE, RATCH,
+  PROB, ACCUM, CV**). Em seguida os 8 botões escolhem o stage, e o encoder edita o valor dele: nota que
+  substitui o slider, gate (--, rest ou 1 a 100%), ratchets (x1 a x8), probabilidade (toque no encoder: por stage
+  ou por pulso), acumulador (de -7 a +7 graus da escala; toque: gatilho por stage, pulso ou ratchet) e a lane de
+  CV (valor; toque: degrau, rampa por stage ou rampa por pulso). SLIDE e SKIP ligam e desligam direto.
+- **SETUP (menu da trilha):** transposição, oitavas e direção dos sliders, pulse count e gate type forçados,
+  gate stretching, modo de ratchet, tipo de slide, acumulador (modo stage/track, wrap/pendulum, uni/bipolar,
+  limites) e mute. Toque no encoder para escolher entre rolar a lista e editar o item.
+- **BPM** (toque no encoder alterna interno/host), **SCALE** (as 17 escalas e Custom do plugin, mais a tônica),
+  **RUN**, **RESET**, **EXIT**, **TRK 1 / TRK 2**. **CLK** (jack) liga o sync com o host.
+- **ALT + LOAD ou SAVE:** o encoder escolhe o banco (1 a 8) e um botão de stage escolhe o preset: 64 presets.
+  **ALT + LIM** abre os limites do acumulador.
+- **LOOPY** (botão do infinito): com ele aceso, segurar um botão de stage faz a trilha repetir aquele stage
+  (segure dois para um trecho); ao soltar, a trilha volta ao ponto onde a sequência estaria. Sem LOOPY nem EDIT,
+  um botão de stage toca aquele stage (stage player).
+- **MOD:** os sliders passam a editar as **8 lanes MOD** (a lane se escolhe com o encoder): valor, rampa e gate.
+  ORDER, LEN e DIV editam a lane; um toque no encoder na tela inicial troca o tipo (bipolar, unipolar, gate).
+- **Modulação:** as 8 lanes MOD saem como as fontes **Seq 1 a Seq 8** na matriz, e as lanes de CV das trilhas como
+  **Trk1 CV** e **Trk2 CV**. O slide do stage que toca abre o Porta (o modo Porta precisa estar ligado).
+- Tudo é salvo no estado do plugin (padrão atual, 64 presets, tempo e SYNC).
+
+Ainda não estão nesta versão: os knobs CTRL 1 e CTRL 2 e as entradas X/Y/Z (a matriz de modulação já cobre o
+que eles fazem), as saídas A, B, CLK e MX, a roteirização das lanes MOD para destinos fixos, o ALT + TYPE e a
+tela de ajuste fino do loopy.

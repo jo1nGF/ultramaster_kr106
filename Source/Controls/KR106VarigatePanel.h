@@ -236,9 +236,9 @@ private:
     addItem(kRnd, Jack, cx[0], cy[5], 30, "RND");         addItem(kFreeze, Jack, cx[1], cy[5], 30, "FREEZE");
     addItem(kEnd, Jack, cx[2], cy[5], 30, "END");
     // extra functions (small buttons, bottom left)
-    const int mx[2] = { 6, 62 }, my[3] = { 266, 292, 318 };
+    const int mx[2] = { 6, 62 }, my[3] = { 262, 285, 308 };
     auto mini = [&](int id, int col, int row, const char* label) {
-      mItems.push_back({ id, Mini, juce::Rectangle<int>(mx[col], my[row], 54, 22), label });
+      mItems.push_back({ id, Mini, juce::Rectangle<int>(mx[col], my[row], 54, 21), label });
     };
     mini(kPageGate, 0, 0, "GATE");   mini(kLink, 1, 0, "LINK");
     mini(kRotL, 0, 1, "ROT <");      mini(kRotR, 1, 1, "ROT >");

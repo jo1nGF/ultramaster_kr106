@@ -166,13 +166,15 @@ private:
 
 
 // ---- matrix: sources and curated targets (choices are stored as 0..1 slider values) ----
-// Source order: None, LFO 1, LFO 2, LFO 3, Envelope, Gate 1 ... Gate 8 (the gate tracks of the Seq page).
+// Source order: None, LFO 1, LFO 2, LFO 3, Envelope, Seq 1 ... Seq 8, Trk1 CV, Trk2 CV.
+// Seq 1-8 are the gate tracks of the Varigate sequencer or, when the Metropolix is selected, its 8 MOD lanes.
+// Trk1 CV / Trk2 CV are the CV lanes of the two Metropolix tracks.
 // (Saved states from before LFO 3 existed stored Envelope as index 3: kOldSourceToNew converts them.)
-static constexpr int kNumModSources = 13;
-static constexpr int kSrcNone = 0, kSrcLfo1 = 1, kSrcLfo2 = 2, kSrcLfo3 = 3, kSrcEnv = 4, kSrcGate1 = 5;
+static constexpr int kNumModSources = 15;
+static constexpr int kSrcNone = 0, kSrcLfo1 = 1, kSrcLfo2 = 2, kSrcLfo3 = 3, kSrcEnv = 4, kSrcGate1 = 5, kSrcTrkCv1 = 13, kSrcTrkCv2 = 14;
 static constexpr const char* kModSourceNames[kNumModSources] = {
   "None", "LFO 1", "LFO 2", "LFO 3", "Envelope",
-  "Gate 1", "Gate 2", "Gate 3", "Gate 4", "Gate 5", "Gate 6", "Gate 7", "Gate 8" };
+  "Seq 1", "Seq 2", "Seq 3", "Seq 4", "Seq 5", "Seq 6", "Seq 7", "Seq 8", "Trk1 CV", "Trk2 CV" };
 static inline int modSourceFromValue(float v)
 { return std::max(0, std::min(kNumModSources - 1, static_cast<int>(std::round(v * (kNumModSources - 1))))); }
 static inline float valueFromModSource(int s) { return static_cast<float>(s) / (kNumModSources - 1); }

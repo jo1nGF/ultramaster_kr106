@@ -277,6 +277,10 @@ public:
     mWasRun = false;
   }
 
+  // the other sequencer takes over: release what sounds and go back to the start
+  template <typename NoteOffF>
+  void StopAll(NoteOffF noteOff) { ResetPositions(noteOff, 0); mWasRun = false; Publish(); }
+
   // the voices were silenced from outside (All Notes Off): forget the notes that were sounding
   void ForgetNotes() { for (auto& c : mCh) { c.sounding = -1; c.high = false; c.glide = 0.f; } mGlideOut.store(0.f); }
 

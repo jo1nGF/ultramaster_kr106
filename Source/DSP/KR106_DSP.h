@@ -17,6 +17,7 @@
 #include "KR106Arpeggiator.h"
 #include "KR106Scale.h"
 #include "KR106Varigate.h"
+#include "KR106Metropolix.h"
 #include "KR106Chorus.h"
 #include "KR106TapeDelay.h"
 #include "KR106DigitalDelay.h"
@@ -649,10 +650,20 @@ public:
       [this](int note, int offset) { SendToSynth(note, true,  127, offset); },
       [this](int note, int offset) { SendToSynth(note, false, 0,   offset); });
 
-    // Step sequencer (Seq page): plays notes straight into the voices, like the arpeggiator does
-    mSeq.Process(nFrames,
-      [this](int note, int offset) { SendToSynth(note, true,  100, offset); },
-      [this](int note, int offset) { SendToSynth(note, false, 0,   offset); });
+    // Step sequencers (Seq page): only the selected one plays, straight into the voices like the arpeggiator
+    {
+      const int seqMode = mSeqMode.load(std::memory_order_relaxed);
+      if (seqMode != mSeqModePrev)                                 // switched: the one that played stops
+      {
+        auto off = [this](int note, int offset) { SendToSynth(note, false, 0, offset); };
+        if (mSeqModePrev == 0) mSeq.StopAll(off); else mMetro.StopAll(off);
+        mSeqModePrev = seqMode;
+      }
+      auto on  = [this](int note, int offset) { SendToSynth(note, true,  100, offset); };
+      auto off = [this](int note, int offset) { SendToSynth(note, false, 0,   offset); };
+      if (seqMode == 0) mSeq.Process(nFrames, on, off);
+      else              mMetro.Process(nFrames, on, off);
+    }
 
     // Drift walk update (per buffer is plenty for sub-Hz LFOs).
     {
@@ -885,6 +896,7 @@ public:
 
     mArp.SetSampleRate(mSampleRate);
     mSeq.SetSampleRate(mSampleRate);
+    mMetro.SetSampleRate(mSampleRate);
     mNoise.SetSampleRate(mSampleRate);
     mLFOBuffer.resize(blockSize);
     mLFORawBuffer.resize(blockSize);
@@ -977,6 +989,9 @@ public:
   kr106::Limiter mLimiter;
   kr106::Arpeggiator mArp;
   kr106::VarigateSeq mSeq;                 // Varigate-style step sequencer (Seq page)
+  kr106::MetropolixSeq mMetro;              // Metropolix-style step sequencer (Seq page)
+  std::atomic<int> mSeqMode { 0 };            // 0 = Varigate, 1 = Metropolix
+  int mSeqModePrev = 0;
 
   float mVcaLevel = 1.f;
   float mVcaLevelSmooth = 1.f;
@@ -1140,6 +1155,7 @@ public:
   {
     mArp.Reset();
     mSeq.ForgetNotes();
+    mMetro.ForgetNotes();
     ResetQuant();
     mKeysDown.reset();
     mHeldNotes.reset();
@@ -1154,6 +1170,7 @@ public:
   {
     mArp.Reset();
     mSeq.Reset();
+    mMetro.Reset();
     ResetQuant();
     mKeysDown.reset();
     mHeldNotes.reset();

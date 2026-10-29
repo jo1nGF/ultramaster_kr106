@@ -27,6 +27,8 @@
       <FILE id="5a1b02" name="KR106ScaleSheet.h" compile="0" resource="0" file="Source/Controls/KR106ScaleSheet.h"/>
       <FILE id="5a1b04" name="KR106ModEnvDisplay.h" compile="0" resource="0" file="Source/Controls/KR106ModEnvDisplay.h"/>
       <FILE id="5a1b05" name="KR106VarigatePanel.h" compile="0" resource="0" file="Source/Controls/KR106VarigatePanel.h"/>
+      <FILE id="5a1b07" name="KR106MetropolixPanel.h" compile="0" resource="0" file="Source/Controls/KR106MetropolixPanel.h"/>
+      <FILE id="5a1b08" name="KR106SeqPage.h" compile="0" resource="0" file="Source/Controls/KR106SeqPage.h"/>
       <FILE id="1423c9" name="KR106Misc.h" compile="0" resource="0" file="Source/Controls/KR106Misc.h"/>
       <FILE id="2e0635" name="KR106PresetDisplay.h" compile="0" resource="0" file="Source/Controls/KR106PresetDisplay.h"/>
       <FILE id="ae3df0" name="KR106QwertyDiagram.h" compile="0" resource="0" file="Source/Controls/KR106QwertyDiagram.h"/>
@@ -46,6 +48,7 @@
       <FILE id="63d029" name="KR106Arpeggiator.h" compile="0" resource="0" file="Source/DSP/KR106Arpeggiator.h"/>
       <FILE id="5a1b03" name="KR106Scale.h" compile="0" resource="0" file="Source/DSP/KR106Scale.h"/>
       <FILE id="5a1b06" name="KR106Varigate.h" compile="0" resource="0" file="Source/DSP/KR106Varigate.h"/>
+      <FILE id="5a1b09" name="KR106Metropolix.h" compile="0" resource="0" file="Source/DSP/KR106Metropolix.h"/>
       <FILE id="6e479d" name="KR106Chorus.h" compile="0" resource="0" file="Source/DSP/KR106Chorus.h"/>
       <FILE id="3ae7c3" name="KR106Clouds.h" compile="0" resource="0" file="Source/DSP/KR106Clouds.h"/>
       <FILE id="d28b16" name="KR106DigitalDelay.h" compile="0" resource="0" file="Source/DSP/KR106DigitalDelay.h"/>

@@ -538,11 +538,11 @@ KR106Editor::KR106Editor(KR106AudioProcessor& p)
     for (int i = firstModChild; i < lastModChild; i++) mPageCtrls[2].push_back(mContent.getChildComponent(i));
 
     // ------------------------------------------------------------------
-    // PAGE 4: SEQ (Varigate-style step sequencer)
+    // PAGE 4: SEQ (Varigate- or Metropolix-style step sequencer)
     // ------------------------------------------------------------------
     {
         const int firstSeqChild = mContent.getNumChildComponents();
-        add(new KR106VarigatePanel(p), 0, kRowA, kBaseWidth, kBaseHeight - kRowA);
+        add(new KR106SeqPage(p), 0, kRowA, kBaseWidth, kBaseHeight - kRowA);
         for (int i = firstSeqChild; i < mContent.getNumChildComponents(); i++)
             mPageCtrls[3].push_back(mContent.getChildComponent(i));
     }

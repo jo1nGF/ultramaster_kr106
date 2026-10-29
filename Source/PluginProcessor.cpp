@@ -1183,6 +1183,8 @@ void KR106AudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
     // the step sequencer follows the host transport when its SYNC button is on
     mDSP.mSeq.mHostPlaying = mCachedHavePPQ ? mCachedPlaying : false;
     mDSP.mSeq.mHostBPM = mCachedHaveBPM ? mCachedBPM : 120.0;
+    mDSP.mMetro.mHostPlaying = mCachedHavePPQ ? mCachedPlaying : false;
+    mDSP.mMetro.mHostBPM = mCachedHaveBPM ? mCachedBPM : 120.0;
 
     if (mArpSyncHost)
     {
@@ -1548,8 +1550,15 @@ void KR106AudioProcessor::applyModulation(int nFrames, const juce::MidiBuffer& /
   src[kr106::kSrcEnv] = mModEnv.Process(nFrames, pv(kModEnvAtt), pv(kModEnvDec), pv(kModEnvSStart),
                                         pv(kModEnvSTime), pv(kModEnvRel), pv(kModEnvAmp), pv(kModEnvVel));
 
-  for (int g = 0; g < kr106::kVgGates; g++)                      // the gate tracks of the Seq page
-    src[kr106::kSrcGate1 + g] = mDSP.mSeq.mGateOut[g].load(std::memory_order_relaxed);
+  const bool metro = mDSP.mSeqMode.load(std::memory_order_relaxed) == 1;
+  for (int g = 0; g < kr106::kVgGates; g++)                      // Seq 1-8: Varigate gates, or the Metropolix MOD lanes
+    src[kr106::kSrcGate1 + g] = metro ? mDSP.mMetro.mLaneOut[g].load(std::memory_order_relaxed)
+                                      : mDSP.mSeq.mGateOut[g].load(std::memory_order_relaxed);
+  if (metro)
+  {
+    src[kr106::kSrcTrkCv1] = mDSP.mMetro.mCvOut[0].load(std::memory_order_relaxed);
+    src[kr106::kSrcTrkCv2] = mDSP.mMetro.mCvOut[1].load(std::memory_order_relaxed);
+  }
 
   for (int s = 1; s < kr106::kNumModSources; s++) mModSrcLast[s].store(src[s], std::memory_order_relaxed);
   mModEnvStage.store(mModEnv.StageIndex(), std::memory_order_relaxed);
@@ -1571,7 +1580,7 @@ void KR106AudioProcessor::applyModulation(int nFrames, const juce::MidiBuffer& /
 
   // glide of the step the sequencer plays: opens Porta for that note (Porta mode has to be on)
   {
-    const float glide = mDSP.mSeq.mGlideOut.load(std::memory_order_relaxed);
+    const float glide = metro ? mDSP.mMetro.mGlideOut.load(std::memory_order_relaxed) : mDSP.mSeq.mGlideOut.load(std::memory_order_relaxed);
     if (glide > 0.f) { add[kPortaRate] += glide; hit[kPortaRate] = true; }
   }
 
@@ -1722,6 +1731,13 @@ void KR106AudioProcessor::getStateInformation(juce::MemoryBlock& destData)
     stream.writeInt(0x4B523530); // 'KR50' magic
     stream.writeInt(static_cast<int>(seq.size()));
     stream.write(seq.data(), seq.size());
+
+    std::vector<uint8_t> metroState;                      // Metropolix sequencer and which sequencer is selected
+    mDSP.mMetro.Serialize(metroState);
+    stream.writeInt(0x4B523630); // 'KR60' magic
+    stream.writeInt(mDSP.mSeqMode.load());
+    stream.writeInt(static_cast<int>(metroState.size()));
+    stream.write(metroState.data(), metroState.size());
   }
 }
 
@@ -1805,6 +1821,17 @@ void KR106AudioProcessor::setStateInformation(const void* data, int sizeInBytes)
                 std::vector<uint8_t> buf(static_cast<size_t>(n));
                 if (stream.read(buf.data(), n) == n) mDSP.mSeq.Deserialize(buf.data(), buf.size());
               }
+              if (!stream.isExhausted() && stream.readInt() == 0x4B523630)
+              {
+                const int mode = stream.readInt();
+                const int m = stream.readInt();
+                if (m > 0 && m < 4000000)
+                {
+                  std::vector<uint8_t> buf(static_cast<size_t>(m));
+                  if (stream.read(buf.data(), m) == m) mDSP.mMetro.Deserialize(buf.data(), buf.size());
+                }
+                mDSP.mSeqMode.store(mode ? 1 : 0);
+              }
             }
           }
         }
@@ -1846,6 +1873,7 @@ void KR106AudioProcessor::setStateInformation(const void* data, int sizeInBytes)
   //   before LFO 3 (state has <= kArpStrum params): 4 sources, 37 targets in a different order
   //   modFormat 0 (no 'KR40' block): 5 sources, 65 targets in the current order
   //   modFormat 3: 5 sources (Gate 1-8 came after), targets as now
+  //   modFormat 4: 13 sources (the Metropolix CV lanes came after), targets as now
   // Convert all of them to the current encoding.
   if (modFormat < kModFormat)
   {
@@ -1857,7 +1885,7 @@ void KR106AudioProcessor::setStateInformation(const void* data, int sizeInBytes)
       if (ps != nullptr && kModRouteBase + 3 * r < numParams)
       {
         const int o = v1 ? kr106::kOldSourceToNew[juce::jlimit(0, kr106::kOldNumSources - 1, juce::roundToInt(ps->getValue() * (kr106::kOldNumSources - 1)))]
-                         : juce::jlimit(0, 4, juce::roundToInt(ps->getValue() * 4.f));
+                         : juce::jlimit(0, modFormat >= 4 ? 12 : 4, juce::roundToInt(ps->getValue() * (modFormat >= 4 ? 12.f : 4.f)));
         ps->setValueNotifyingHost(kr106::valueFromModSource(o));
       }
       if (pt != nullptr && modFormat < 3 && kModRouteBase + 3 * r + 1 < numParams)
