@@ -10,6 +10,10 @@
 //     button again goes back to the GATE page.
 //   * Left: CLK IN (SYNC with the host), RESET, CLK OUT with its LED, and the 12-LED note / value meter
 //     with the scale keys next to it.
+//   * Small buttons: LINK, ROT <, ROT >, R.ALL (randomize everything), S.PRG, ALL (the next slider moves set every
+//     step), REC (live recording: played keys, or TAP, write the gate and the note into the step that plays),
+//     TAP and G+D (GATE+DELAY: a step with a delay also plays a short pulse on the beat). In TRACK mode KEY and
+//     ROOT + n set the scale of the BANK: every preset of the bank plays in it.
 //   * Bottom row: GATE 1-8, CV 1, CV 2 (the red LED above each shows its gate). They select the track;
 //     after BANK, SAVE or RECALL they pick the bank / preset (1-10) instead.
 //
@@ -173,6 +177,7 @@ public:
       if (inside) press(mPressed);
     }
     mPressed = -1;
+    if (mDragging) mAllSteps = false;                       // ALL lasts for one slider move, like holding the button
     mDragging = false;
     mLastStep = -1;
     repaint();
@@ -187,7 +192,7 @@ private:
 
   enum Id {
     kPageGate = 0, kPageProb, kPageRpt, kPageDly, kPagePw, kPageNote, kPageGlide,      // 0..6 = VgPage
-    kTrack = 10, kMute, kClear, kSong, kSongPrg, kLink, kBank, kSave, kRecall,
+    kTrack = 10, kMute, kClear, kSong, kSongPrg, kLink, kBank, kSave, kRecall, kAllSteps, kRec, kTap, kGateDly,
     kRun = 30, kReset, kClkIn, kFreeze, kRnd, kRndAll, kRotL, kRotR, kTempo, kEnd, kClkOut,
     kChanBase = 100                                                                    // 100..109
   };
@@ -199,7 +204,7 @@ private:
   kr106::VarigateSeq& mSeq;
   std::vector<Item> mItems;
   int mSel = 0, mPage = 0, mArm = kArmNone;
-  bool mTrackMode = false, mMuteMode = false, mClearArm = false, mSongPrg = false, mDragging = false;
+  bool mTrackMode = false, mMuteMode = false, mClearArm = false, mSongPrg = false, mDragging = false, mAllSteps = false;
   int mPressed = -1, mLastStep = -1, mSetTo = 0;
   float mTempoStart = 120.f;
   int mTempoX = 0, mTempoY = 0;
@@ -236,13 +241,13 @@ private:
     addItem(kRnd, Jack, cx[0], cy[5], 30, "RND");         addItem(kFreeze, Jack, cx[1], cy[5], 30, "FREEZE");
     addItem(kEnd, Jack, cx[2], cy[5], 30, "END");
     // extra functions (small buttons, bottom left)
-    const int mx[2] = { 6, 62 }, my[3] = { 262, 285, 308 };
+    const int mx[3] = { 4, 42, 80 }, my[3] = { 262, 285, 308 };
     auto mini = [&](int id, int col, int row, const char* label) {
-      mItems.push_back({ id, Mini, juce::Rectangle<int>(mx[col], my[row], 54, 21), label });
+      mItems.push_back({ id, Mini, juce::Rectangle<int>(mx[col], my[row], 36, 21), label });
     };
-    mini(kPageGate, 0, 0, "GATE");   mini(kLink, 1, 0, "LINK");
-    mini(kRotL, 0, 1, "ROT <");      mini(kRotR, 1, 1, "ROT >");
-    mini(kRndAll, 0, 2, "RND ALL");  mini(kSongPrg, 1, 2, "S.PRG");
+    mini(kLink, 0, 0, "LINK");     mini(kRotL, 1, 0, "ROT<");     mini(kRotR, 2, 0, "ROT>");
+    mini(kRndAll, 0, 1, "R.ALL");  mini(kSongPrg, 1, 1, "S.PRG"); mini(kAllSteps, 2, 1, "ALL");
+    mini(kRec, 0, 2, "REC");       mini(kTap, 1, 2, "TAP");       mini(kGateDly, 2, 2, "G+D");
     // track row
     for (int t = 0; t < kr106::kVgTracks; t++)
       addItem(kChanBase + t, Chan, 160 + t * 72, kChanCy, 34,
@@ -490,7 +495,7 @@ private:
     {
       if (mSel < kr106::kVgGates) return "LINK";
       const int l = mSeq.mPat.t[mSel].link.get();
-      return l == 0 ? juce::String("LINK -") : "LINK G" + juce::String(l);
+      return l == 0 ? juce::String("LK -") : "LK G" + juce::String(l);
     }
     return it.label;
   }
@@ -502,6 +507,9 @@ private:
     if (mArm == kArmSave)   return "SAVE: press a track button (1-10) to save the pattern as that preset";
     if (mArm == kArmRecall) return "RECALL: press a track button (1-10) to load that preset";
     if (mSongPrg)           return "S.PRG: press track buttons to add presets to the song (CLEAR empties it)";
+    if (mSeq.mRecArm.load())
+      return "REC: play keys or press TAP to record into the step that is playing (" + juce::String(mSel < kVgGates ? "GATE " + juce::String(mSel + 1) : "CV " + juce::String(mSel - kVgGates + 1)) + ")";
+    if (mAllSteps)          return "ALL: the next slider move sets every step of the track";
     const int bank = mSeq.mBank.load();
     juce::String song;
     for (int k = 0; k < 10; k++) { const int v = mSeq.mSong[bank][k].get(); if (v > 0) song += " " + juce::String(v); }
@@ -528,6 +536,7 @@ private:
     {
       mSetTo = t.gate[step].get() >= 64 ? 0 : 127;
       t.gate[step].set(mSetTo);
+      if (mAllSteps) { for (int i = 0; i < kVgSteps; i++) t.gate[i].set(mSetTo); mAllSteps = false; }
       return;
     }
     dragSlider(step, p, true);
@@ -544,12 +553,13 @@ private:
       if (step == 0)      { const int d = juce::roundToInt(f * 12.f); t.div.set(d); setBar(0, d); }
       else if (step == 1) { const int l = 1 + juce::roundToInt(f * 15.f); t.len.set(l); setBar(0, juce::roundToInt(l * 12.f / 16.f)); }
       else if (step == 2) { const int d = juce::roundToInt(f * 3.f); t.dir.set(d); setBar(0, (d + 1) * 3); }
-      else                { const int k = juce::roundToInt(f * 11.f); mSeq.mPat.key.set(k); setBar(1, k); }
+      else                { const int k = juce::roundToInt(f * 11.f); mSeq.SetBankKey(k); setBar(1, k); }
       return;
     }
     if (mPage == kVgPgGate) { if (newStep) t.gate[step].set(mSetTo); return; }       // painting on / off
     const int v = juce::roundToInt(f * 127.f);
     t.pageArray(mPage)[step].set(v);
+    if (mAllSteps) for (int i = 0; i < kVgSteps; i++) t.pageArray(mPage)[i].set(v);       // ALL: every step gets the value
     if (mPage == kVgPgNote) setBar(1, vgNoteFor(mSeq.mPat, v) % 12);
     else setBar(0, juce::roundToInt(v / 127.f * 12.f));
   }
@@ -559,7 +569,7 @@ private:
     uint16_t m = mSeq.mPat.scale();
     if (on) m = static_cast<uint16_t>(m | (1u << bit)); else m = static_cast<uint16_t>(m & ~(1u << bit));
     if ((m & 0x0FFF) == 0) m = static_cast<uint16_t>(1u << bit);          // never an empty scale
-    mSeq.mPat.setScale(m);
+    mSeq.SetBankScaleMask(m);                                              // the scale belongs to the bank
   }
 
   bool isLit(int id, juce::uint32 now) const
@@ -583,6 +593,7 @@ private:
       case kBank: return mArm == kArmBank;  case kSave: return mArm == kArmSave; case kRecall: return mArm == kArmRecall;
       case kRun: return mSeq.mRun.load();   case kClkIn: return mSeq.mSync.load(); case kFreeze: return mSeq.mFreeze.load();
       case kRnd: return now < mRndFlash;
+      case kAllSteps: return mAllSteps;   case kRec: return mSeq.mRecArm.load();   case kGateDly: return mSeq.mGateDelay.load();
       default: return false;
     }
   }
@@ -593,7 +604,7 @@ private:
     if (id >= kChanBase && id < kChanBase + 10)
     {
       const int t = id - kChanBase, bank = mSeq.mBank.load();
-      if (mArm == kArmBank)        { mSeq.mBank.store(t); mArm = kArmNone; }
+      if (mArm == kArmBank)        { mSeq.mBank.store(t); mSeq.ApplyBankScale(t); mArm = kArmNone; }
       else if (mArm == kArmSave)   { mSeq.Save(bank * 10 + t); mSeq.mSlot.store(t); mArm = kArmNone; }
       else if (mArm == kArmRecall) { mSeq.Recall(bank * 10 + t); mArm = kArmNone; }
       else if (mSongPrg)
@@ -602,7 +613,7 @@ private:
       }
       else if (mClearArm)          { mSeq.ClearTrack(t); mClearArm = false; }
       else if (mMuteMode)          mSeq.mPat.t[t].mute.set(mSeq.mPat.t[t].mute.get() ? 0 : 1);
-      else                         mSel = t;
+      else                         { mSel = t; mSeq.mRecTrack.store(t); }
       return;
     }
     if (id >= kPageProb && id <= kPageGlide)                // tapping the lit page button goes back to GATE
@@ -638,6 +649,10 @@ private:
       case kRndAll: mSeq.RandomizeAll(mSel); break;
       case kRotL:   mSeq.Rotate(mSel, -1); break;
       case kRotR:   mSeq.Rotate(mSel, +1); break;
+      case kAllSteps: mAllSteps = !mAllSteps; break;
+      case kRec:    mSeq.mRecArm.store(!mSeq.mRecArm.load()); mSeq.mRecTrack.store(mSel); break;
+      case kTap:    mSeq.RecordEvent(mSel, -1); break;
+      case kGateDly: mSeq.mGateDelay.store(!mSeq.mGateDelay.load()); break;
       default: break;
     }
   }

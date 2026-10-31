@@ -288,7 +288,20 @@ O Varigate, no estilo do painel do Malekko Varigate 8+:
 - **Modulação:** os 8 gates viram fontes na matriz (**Seq 1 a Seq 8**).
 - Tudo é salvo no estado do plugin (padrão atual, 100 presets, songs, tempo e SYNC).
 
-Ainda não estão nesta versão: gravação de gate ao vivo, o modo Gate+Delay e a escala por banco.
+- **Botões pequenos** (canto inferior esquerdo): **LINK** (liga a CV selecionada a um gate), **ROT<** e
+  **ROT>**, **R.ALL** (sorteia tudo da trilha), **S.PRG** (monta a lista do SONG), **ALL**, **REC**, **TAP** e
+  **G+D**.
+- **ALL:** o próximo movimento de slider vale para os 16 passos da trilha (dura um movimento, como segurar o
+  botão BANK/ALL do original).
+- **Gravação ao vivo (REC + TAP):** com REC aceso e o sequenciador rodando, as teclas que você toca (teclado do
+  plugin, MIDI) ou o botão **TAP** gravam o gate no passo que está tocando (ou no seguinte, se o passo já passou
+  da metade). Numa trilha de gate, as CVs ligadas a ela recebem a nota tocada; numa trilha de CV, a nota é
+  gravada e o gate da trilha ligada é aceso. Selecione a trilha que quer gravar na fileira de baixo.
+- **G+D (Gate+Delay):** com ele aceso, um passo que tem delay toca também um pulso curto na batida, antes do gate
+  atrasado (o gate atrasado mantém a largura normal).
+- **Escala por banco:** em TRACK, KEY e ROOT + n mudam a escala do **banco** atual: todos os presets do banco
+  tocam nessa escala (ao chamar um preset ou trocar de banco, a escala do banco é aplicada).
+- A lista de fontes da matriz tem agora **Out A** e **Out B** (do Metropolix); no Varigate elas ficam em zero.
 
 
 ## Aba Seq, modo Metropolix
@@ -324,6 +337,20 @@ com o painel prateado do original.
   **Trk1 CV** e **Trk2 CV**. O slide do stage que toca abre o Porta (o modo Porta precisa estar ligado).
 - Tudo é salvo no estado do plugin (padrão atual, 64 presets, tempo e SYNC).
 
-Ainda não estão nesta versão: os knobs CTRL 1 e CTRL 2 e as entradas X/Y/Z (a matriz de modulação já cobre o
-que eles fazem), as saídas A, B, CLK e MX, a roteirização das lanes MOD para destinos fixos, o ALT + TYPE e a
-tela de ajuste fino do loopy.
+- **CTRL 1 e CTRL 2:** o botão preto ao lado de cada knob abre as configurações (parâmetro, trilhas TRK 1, TRK 2
+  ou 1+2). O knob define o valor direto (nos destinos bipolares, 12 horas é o valor programado). Destinos: BPM,
+  Clock Div, Direction, Gate Length, Gate Scale, Octave, Pitch Pre, Pitch Post, Play Order, Probability, Pulse
+  Count, Pulse Div, Pulses Len, Ratchet, Root, Slide Amount, Slider Range, Stages Len, Stage Offset, Swing, Mute,
+  Reset, Skip Invert, Slide, Accumulate e Accum Reset (os marcados "gate" disparam acima de 30%).
+- **AUX X, Y, Z:** toque no jack para escolher a fonte (LFO 1, LFO 2, LFO 3 ou o envelope do plugin), o parâmetro
+  e as trilhas. O knob ao lado é o atenuador/inversor (12 horas = zero). Eles somam ao valor do parâmetro.
+- **Lanes MOD:** ficam como fontes na matriz (Seq 1 a Seq 8) e também podem controlar os mesmos parâmetros de
+  cima: no modo MOD, toque em MOD de novo (ou EDIT + botão de stage) para abrir a tela de atribuição da lane.
+- **OUT A e OUT B:** toque nos jacks A e B (ou ALT + A, ALT + B) para escolher o que cada saída dá: Trk 1 ou 2
+  Pitch, Trk 1 ou 2 Gate, Trk 1 ou 2 CV, ou uma das lanes MOD. Elas viram as fontes **Out A** e **Out B** na matriz.
+- **ALT + TYPE:** o tipo da lane de CV da trilha: valor ou gate toggle (o EDIT CV usa então o gate do stage).
+- **LOOPY:** a tela do LOOPY define quantos pulsos dura o loop (Auto ou até 64) e a quais trilhas ele vale.
+
+Limitações: não há saídas físicas, então CLK (jack) só liga o sync, o LED CLK OUT é do Varigate, e as funções
+ALT + CLK e ALT + MX (mixer) são apenas informativas; velocidade não é um destino; o stage player e o loopy
+não gravam. Use a matriz de modulação para levar qualquer fonte ao resto do sintetizador.

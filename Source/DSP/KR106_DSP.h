@@ -942,6 +942,8 @@ public:
     // second voice for the same pitch.
     if (mKeysDown.test(note)) return;
     mKeysDown.set(note);
+    if (mSeqMode.load(std::memory_order_relaxed) == 0 && mSeq.mRecArm.load(std::memory_order_relaxed))
+      mSeq.RecordEvent(mSeq.mRecTrack.load(std::memory_order_relaxed), note);               // live recording on the Seq page
     if (mArp.mEnabled) { mArp.NoteOn(note); return; }
     SendToSynth(note, true, velocity, 0);
   }

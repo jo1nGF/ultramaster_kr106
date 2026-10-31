@@ -8,7 +8,10 @@
 //     INDEPENDENT with its own clock and a note on every step.
 //   * Every track has its own clock divider / multiplier, sequence length, direction (forward, reverse,
 //     pendulum, random) and mute.
-//   * Notes are quantized to a scale: key + 12 allowed pitch classes per pattern.
+//   * Notes are quantized to a scale: key + 12 allowed pitch classes. The scale belongs to the BANK: every preset
+//     of a bank plays in the scale of that bank.
+//   * GATE+DELAY mode: a step with a delay also plays a short pulse on the beat, before the delayed gate.
+//   * Live recording: with REC armed, played keys (or TAP) write the gate (and the note) into the step that is playing.
 //   * 100 presets (10 banks of 10), SONG mode (a list of presets per bank that plays one after the
 //     other), randomize, freeze (turns the random behaviour into a fixed, repeating one), rotate, clear.
 //
@@ -132,6 +135,9 @@ public:
   A8 mSong[kVgBanks][10];                            // per bank: list of preset slots (value = slot + 1, 0 = empty)
 
   std::atomic<bool> mRun { false }, mSync { false }, mSongOn { false }, mFreeze { false }, mResetReq { false };
+  std::atomic<bool> mGateDelay { false }, mRecArm { false };
+  std::atomic<int> mRecTrack { 0 };
+  A8 mBankKey[kVgBanks], mBankLo[kVgBanks], mBankHi[kVgBanks];       // scale of each bank
   std::atomic<float> mBpm { 120.f };
   std::atomic<int> mBank { 0 }, mSlot { 0 }, mSongPos { 0 };
   double mHostBPM = 120.0;
@@ -140,6 +146,7 @@ public:
   // read by the screen / the modulation matrix
   std::atomic<int8_t> mPos[kVgTracks];               // step that plays now (-1 = none yet)
   std::atomic<uint8_t> mHigh[kVgTracks];             // gate is high
+  std::atomic<float> mPhase[kVgTracks];              // position inside the step (0..1), for recording
   std::atomic<float> mGateOut[kVgGates];             // 0 / 1
   std::atomic<float> mGlideOut { 0.f };              // glide of the CV step that sounds (0..1)
   std::atomic<uint8_t> mClkOut { 0 };                // CLK OUT LED: flashes on every master clock tick (16th note)
@@ -151,8 +158,9 @@ public:
     mPresets.resize(kVgPresets);
     for (auto& p : mPresets) p.Init();
     for (auto& b : mSong) for (auto& s : b) s.set(0);
-    for (int i = 0; i < kVgTracks; i++) { mPos[i].store(-1); mHigh[i].store(0); }
+    for (int i = 0; i < kVgTracks; i++) { mPos[i].store(-1); mHigh[i].store(0); mPhase[i].store(0.f); }
     for (int i = 0; i < kVgGates; i++) mGateOut[i].store(0.f);
+    for (int b = 0; b < kVgBanks; b++) { mBankKey[b].set(0); mBankLo[b].set(0xB5); mBankHi[b].set(0x0A); }
     InitDemo(mPresets[0]);
     mPat = mPresets[0];
     mSong[0][0].set(1);
@@ -182,6 +190,47 @@ public:
     preset = std::max(0, std::min(kVgPresets - 1, preset));
     mPat = mPresets[preset];
     mBank.store(preset / 10); mSlot.store(preset % 10);
+    ApplyBankScale(preset / 10);
+  }
+  // the scale of a bank is what every preset of the bank plays in
+  void ApplyBankScale(int bank)
+  {
+    bank = std::max(0, std::min(kVgBanks - 1, bank));
+    mPat.key.set(mBankKey[bank].get());
+    mPat.scaleLo.set(mBankLo[bank].get()); mPat.scaleHi.set(mBankHi[bank].get());
+  }
+  void SetBankKey(int key) { const int b = mBank.load(); mBankKey[b].set(key % 12); mPat.key.set(key % 12); }
+  void SetBankScaleMask(uint16_t m)
+  {
+    const int b = mBank.load();
+    mBankLo[b].set(m & 0xFF); mBankHi[b].set((m >> 8) & 0x0F);
+    mPat.setScale(m);
+  }
+  // live recording: writes a gate (and a note, when there is one) into the step that is playing, or the next
+  // one when the step is more than half over. tr is the track that is being recorded (a gate or a CV track).
+  void RecordEvent(int tr, int note)
+  {
+    if (tr < 0 || tr >= kVgTracks) return;
+    const bool linked = tr >= kVgGates && mPat.t[tr].link.get() >= 1 && mPat.t[tr].link.get() <= kVgGates;
+    const int clk = linked ? mPat.t[tr].link.get() - 1 : tr;                     // the track whose steps are written
+    const VgTrack& ct = mPat.t[clk];
+    const int len = std::max(1, std::min(kVgSteps, static_cast<int>(ct.len.get())));
+    int step = std::max(0, static_cast<int>(mPos[clk].load()));
+    if (mPos[clk].load() >= 0 && mPhase[clk].load() > 0.5f)
+      step = (ct.dir.get() == 1) ? (step - 1 + len) % len : (step + 1) % len;
+    step = std::min(step, len - 1);
+    if (tr < kVgGates)
+    {
+      mPat.t[tr].gate[step].set(127);
+      if (note >= 0)                                                              // the CV tracks that follow this gate get the note
+        for (int cv = kVgGates; cv < kVgTracks; cv++)
+          if (mPat.t[cv].link.get() == tr + 1) mPat.t[cv].note[step].set(vgValueForPitch(mPat, note));
+    }
+    else
+    {
+      if (linked) mPat.t[clk].gate[step].set(127);
+      if (note >= 0) mPat.t[tr].note[step].set(vgValueForPitch(mPat, note));
+    }
   }
   void Save(int preset)
   {
@@ -247,6 +296,8 @@ public:
     for (int i = 0; i < 4; i++) out.push_back(bp[i]);
     out.push_back(mSync.load() ? 1 : 0);
     out.push_back(mSongOn.load() ? 1 : 0);
+    for (int b = 0; b < kVgBanks; b++) { out.push_back(mBankKey[b].get()); out.push_back(mBankLo[b].get()); out.push_back(mBankHi[b].get()); }
+    out.push_back(mGateDelay.load() ? 1 : 0);
   }
   bool Deserialize(const uint8_t* d, size_t n)
   {
@@ -263,6 +314,11 @@ public:
     mBpm.store(std::max(20.f, std::min(400.f, bpm)));
     mSync.store(d[o++] != 0);
     mSongOn.store(d[o++] != 0);
+    if (n >= o + kVgBanks * 3 + 1)                                  // bank scales and gate+delay (added later)
+    {
+      for (int b = 0; b < kVgBanks; b++) { mBankKey[b].set(std::min<int>(11, d[o++])); mBankLo[b].set(d[o++]); mBankHi[b].set(d[o++] & 0x0F); }
+      mGateDelay.store(d[o++] != 0);
+    }
     return true;
   }
 
@@ -302,6 +358,7 @@ public:
     const bool freeze = mFreeze.load();
 
     const int endSamples = static_cast<int>(0.08 * mSampleRate);
+    const bool gateDelay = mGateDelay.load();
     for (int s = 0; s < nFrames; s++)
     {
       mClkPhase += inc;
@@ -337,6 +394,7 @@ public:
             const int k = static_cast<int>((c.phase - c.d) / sub);
             if (k < c.n) high = (c.phase - (c.d + k * sub)) < c.w * sub;
           }
+          if (gateDelay && c.d > 0.0001 && c.phase < 0.1) high = true;          // GATE+DELAY: a short pulse on the beat as well
         }
         if (mPat.t[tr].mute.get()) high = false;
         if (high && !c.high)
@@ -473,7 +531,7 @@ private:
     {
       pos = (pos + 1) % 10;
       const int v = mSong[bank][pos].get();
-      if (v > 0) { mSongPos.store(pos); mSlot.store(v - 1); mPat = mPresets[bank * 10 + (v - 1)]; return; }
+      if (v > 0) { mSongPos.store(pos); mSlot.store(v - 1); mPat = mPresets[bank * 10 + (v - 1)]; ApplyBankScale(bank); return; }
     }
   }
 
@@ -498,6 +556,7 @@ private:
       const Chan& c = mCh[tr];
       mPos[tr].store(c.started ? static_cast<int8_t>(IsLinked(tr) ? mCh[mPat.t[tr].link.get() - 1].pos : c.pos) : static_cast<int8_t>(-1));
       mHigh[tr].store(c.high ? 1 : 0);
+      mPhase[tr].store(static_cast<float>(IsLinked(tr) ? mCh[mPat.t[tr].link.get() - 1].phase : c.phase));
       if (tr < kVgGates) mGateOut[tr].store(c.high ? 1.f : 0.f);
       else if (c.sounding >= 0) glide = std::max(glide, c.glide);
     }

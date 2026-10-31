@@ -1558,6 +1558,16 @@ void KR106AudioProcessor::applyModulation(int nFrames, const juce::MidiBuffer& /
   {
     src[kr106::kSrcTrkCv1] = mDSP.mMetro.mCvOut[0].load(std::memory_order_relaxed);
     src[kr106::kSrcTrkCv2] = mDSP.mMetro.mCvOut[1].load(std::memory_order_relaxed);
+    src[kr106::kSrcOutA] = mDSP.mMetro.mOutA.load(std::memory_order_relaxed);
+    src[kr106::kSrcOutB] = mDSP.mMetro.mOutB.load(std::memory_order_relaxed);
+  }
+  // Metropolix AUX inputs X, Y, Z: a source of the plugin (an LFO or the envelope) through the attenuverter
+  for (int i = 0; i < 3; i++)
+  {
+    auto& pat = mDSP.mMetro.mPat;
+    const int srcIdx = pat.auxSrc[i].get();
+    const float v = (metro && srcIdx >= 1 && srcIdx <= 4) ? src[srcIdx] * (kr106::s8(pat.auxAmt[i]) / 127.f) : 0.f;
+    mDSP.mMetro.mAuxIn[i].store(juce::jlimit(-1.f, 1.f, v), std::memory_order_relaxed);
   }
 
   for (int s = 1; s < kr106::kNumModSources; s++) mModSrcLast[s].store(src[s], std::memory_order_relaxed);
@@ -1874,10 +1884,12 @@ void KR106AudioProcessor::setStateInformation(const void* data, int sizeInBytes)
   //   modFormat 0 (no 'KR40' block): 5 sources, 65 targets in the current order
   //   modFormat 3: 5 sources (Gate 1-8 came after), targets as now
   //   modFormat 4: 13 sources (the Metropolix CV lanes came after), targets as now
+  //   modFormat 5: 15 sources (Out A / Out B came after), targets as now
   // Convert all of them to the current encoding.
   if (modFormat < kModFormat)
   {
     const bool v1 = numParams <= kArpStrum;
+    const int oldSources = modFormat >= 5 ? 14 : (modFormat >= 4 ? 12 : 4);   // choices - 1 in the state that is being loaded
     for (int r = 0; r < kModRows; r++)
     {
       auto* ps = mParams[kModRouteBase + 3 * r];
@@ -1885,7 +1897,7 @@ void KR106AudioProcessor::setStateInformation(const void* data, int sizeInBytes)
       if (ps != nullptr && kModRouteBase + 3 * r < numParams)
       {
         const int o = v1 ? kr106::kOldSourceToNew[juce::jlimit(0, kr106::kOldNumSources - 1, juce::roundToInt(ps->getValue() * (kr106::kOldNumSources - 1)))]
-                         : juce::jlimit(0, modFormat >= 4 ? 12 : 4, juce::roundToInt(ps->getValue() * (modFormat >= 4 ? 12.f : 4.f)));
+                         : juce::jlimit(0, oldSources, juce::roundToInt(ps->getValue() * static_cast<float>(oldSources)));
         ps->setValueNotifyingHost(kr106::valueFromModSource(o));
       }
       if (pt != nullptr && modFormat < 3 && kModRouteBase + 3 * r + 1 < numParams)

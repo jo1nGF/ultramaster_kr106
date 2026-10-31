@@ -79,7 +79,7 @@ constexpr int kLfo3Wave = kModFirst + 67, kLfo3Rate = kModFirst + 68, kLfo3Amt =
               kLfo3Delay = kModFirst + 70, kLfo3Retrig = kModFirst + 71, kLfo3SH = kModFirst + 72,
               kLfo3Smooth = kModFirst + 73, kLfo3Phase = kModFirst + 74;
 constexpr int kNumModLfos = 3;
-constexpr int kModFormat = 5;    // version of the matrix Source / Target encoding written to the state
+constexpr int kModFormat = 6;    // version of the matrix Source / Target encoding written to the state
 
 class KR106AudioProcessor : public juce::AudioProcessor
 {
@@ -179,7 +179,7 @@ public:
   kr106::ModLFO mModLfo[kNumModLfos];
   kr106::ModEnv mModEnv;
   uint32_t mSeenOns = 0, mSeenOffs = 0;
-  std::atomic<float> mModSrcLast[kr106::kNumModSources] { {0.f}, {0.f}, {0.f}, {0.f}, {0.f}, {0.f}, {0.f}, {0.f}, {0.f}, {0.f}, {0.f}, {0.f}, {0.f}, {0.f}, {0.f} };   // LFO 1-3, envelope, seq 1-8, trk CV 1-2: last values
+  std::atomic<float> mModSrcLast[kr106::kNumModSources] { {0.f}, {0.f}, {0.f}, {0.f}, {0.f}, {0.f}, {0.f}, {0.f}, {0.f}, {0.f}, {0.f}, {0.f}, {0.f}, {0.f}, {0.f}, {0.f}, {0.f} };   // LFO 1-3, envelope, seq 1-8, trk CV 1-2, out A-B: last values
   // Value a control should show: the modulated value while the matrix drives it, else the user value
   float modDisplayValue(int p) const { return (p >= 0 && p < kNumParams && mModActive[p]) ? mModSent[p] : (mParams[p] ? mParams[p]->getValue() : 0.f); }
   kr106::VarigateSeq& getSeq() { return mDSP.mSeq; }       // the step sequencers (Seq page)
