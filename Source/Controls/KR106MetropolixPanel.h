@@ -34,10 +34,11 @@
 #include <juce_gui_basics/juce_gui_basics.h>
 #include <vector>
 #include "../PluginProcessor.h"
+#include "KR106PanelBackground.h"
 #include "../DSP/KR106Metropolix.h"
 #include "../DSP/KR106Scale.h"
 
-class KR106MetropolixPanel : public juce::Component, private juce::Timer
+class KR106MetropolixPanel : public juce::Component, public kr106touch::PanelBackground, private juce::Timer
 {
 public:
   explicit KR106MetropolixPanel(KR106AudioProcessor& p) : mProc(p), mSeq(p.getMetro())
@@ -46,6 +47,16 @@ public:
   }
 
   void resized() override { layout(); }
+
+  // empty parts of the panel start zoom / pan; buttons, knobs and sliders keep their touches
+  bool isBackgroundAt(juce::Point<int> p) const override
+  {
+    for (auto& it : mItems) if (it.r.contains(p)) return false;
+    int band = -1, col = -1;
+    if (sliderAt(p, band, col)) return false;
+    for (int i = 0; i < 8; i++) if (stageRect(i).contains(p)) return false;
+    return true;
+  }
 
   void paint(juce::Graphics& g) override
   {
@@ -128,7 +139,14 @@ public:
   void mouseDrag(const juce::MouseEvent& e) override
   {
     const auto p = e.getPosition();
-    if (mSlider >= 0) { setSlider(mSlider / 8, mSlider % 8, p.y); return; }
+    if (mSlider >= 0)
+    {
+      // sliding sideways paints the neighbouring sliders of the same row: the finger sets whichever one it is over
+      const int col = juce::jlimit(0, 7, (p.x - (kColX0 - kColP / 2)) / kColP);
+      mSlider = (mSlider / 8) * 8 + col;
+      setSlider(mSlider / 8, col, p.y);
+      return;
+    }
     if (mKnobDrag >= 0) { setKnob(mKnobDrag, mKnobStart + static_cast<float>(mKnobY - p.y) * 0.012f); return; }
     if (mEncDrag)
     {

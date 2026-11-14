@@ -353,6 +353,18 @@ struct Arpeggiator
     mSounding = false;
   }
 
+  // Length of one arp step in samples with the current settings (also when the arp is off: the ratchet
+  // outside the arp uses it as its time base).
+  float StepSamplesNow() const
+  {
+    if (mSyncToHost)
+    {
+      const int div = std::max(0, std::min(mDivision, static_cast<int>(kNumArpDivisions) - 1));
+      return static_cast<float>(kDivBeats[div] * 60.0 / std::max(1.0, mHostBPM) * static_cast<double>(mSampleRate));
+    }
+    return mSampleRate * 60.f / std::max(1.f, mRate);
+  }
+
   // Play the notes of the current step (mStepNotes, main note first). With a strum the
   // chord notes are queued and struck one after the other (low -> high) by StrumTick().
   template <typename NoteOnF>

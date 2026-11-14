@@ -527,6 +527,7 @@ static constexpr float kCenterDelayMs = 3.30f;   // was 3.20f
   float mAnalogMul = 1.f; // broadband noise multiplier (variance sheet)
   float mMainsMul = 1.f;  // mains ripple multiplier (variance sheet)
   float mClockMul = 1.f;  // chorus noise multiplier (variance sheet: leakage + clicks)
+  bool mNoiseOff = false; // settings: remove the chorus noise (hiss, leakage, clicks, ripple) altogether
   float mBbdDriveUser = 50.f; // user-adjustable BBD sat drive (0-100, default 50)
 
   void updateBbdDrive()
@@ -727,8 +728,9 @@ static constexpr float kCenterDelayMs = 3.30f;   // was 3.20f
     // Continuous wet noise (compander + BBD output-stage floor) — broadband,
     // constant amplitude. Provides the noise floor that's present even at
     // the LFO trough.
-    float wetPink0 = mWetPink0.Process() * kr106::analog_noise::kWetBroadbandGain * mAnalogMul;
-    float wetPink1 = mWetPink1.Process() * kr106::analog_noise::kWetBroadbandGain * mAnalogMul;
+    const float noiseOn = mNoiseOff ? 0.f : 1.f;
+    float wetPink0 = mWetPink0.Process() * kr106::analog_noise::kWetBroadbandGain * mAnalogMul * noiseOn;
+    float wetPink1 = mWetPink1.Process() * kr106::analog_noise::kWetBroadbandGain * mAnalogMul * noiseOn;
 
     // Compute click signals once — used both for BBD injection (signal path)
     // and for the per-channel ClickRing resonator (output-stage path).
@@ -738,9 +740,9 @@ static constexpr float kCenterDelayMs = 3.30f;   // was 3.20f
     float click1Slo = mSlowClick1.Process(-lfo) * kBBDSlowClickGain * mGainModScale;
 
     float bbdIn0 =
-        (wetPink0 + noiseN0 * kBBDLeakageGain * leakAmount0 + click0Pri - click0Slo) * mClockMul;
+        (wetPink0 + noiseN0 * kBBDLeakageGain * leakAmount0 + click0Pri - click0Slo) * mClockMul * noiseOn;
     float bbdIn1 =
-        (wetPink1 + noiseN1 * kBBDLeakageGain * leakAmount1 + click1Pri - click1Slo) * mClockMul;
+        (wetPink1 + noiseN1 * kBBDLeakageGain * leakAmount1 + click1Pri - click1Slo) * mClockMul * noiseOn;
 
     float wet0 = mLine0.Process(input, delay0samp, bbdIn0);
     float wet1 = mLine1.Process(input, delay1samp, bbdIn1);
@@ -760,11 +762,11 @@ static constexpr float kCenterDelayMs = 3.30f;   // was 3.20f
     // rejection on hardware is 15-20 dB, so NOT common-mode.
     float clickSum0 = click0Pri;
     float clickSum1 = click1Pri;
-    wet0 += mClickRing0.Process(clickSum0) * kClickRingGain * mClockMul;
-    wet1 += mClickRing1.Process(clickSum1) * kClickRingGain * mClockMul;
+    wet0 += mClickRing0.Process(clickSum0) * kClickRingGain * mClockMul * noiseOn;
+    wet1 += mClickRing1.Process(clickSum1) * kClickRingGain * mClockMul * noiseOn;
 
     // Mains ripple (post-BBD, shared on hardware).
-    const float ripple = mWetRipple.Process() * mMainsMul;
+    const float ripple = mWetRipple.Process() * mMainsMul * noiseOn;
     wet0 += ripple;
     wet1 += ripple;
 

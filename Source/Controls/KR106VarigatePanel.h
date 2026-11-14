@@ -22,10 +22,11 @@
 #include <juce_gui_basics/juce_gui_basics.h>
 #include <vector>
 #include "../PluginProcessor.h"
+#include "KR106PanelBackground.h"
 #include "../DSP/KR106Varigate.h"
 #include "../DSP/KR106Scale.h"
 
-class KR106VarigatePanel : public juce::Component, private juce::Timer
+class KR106VarigatePanel : public juce::Component, public kr106touch::PanelBackground, private juce::Timer
 {
 public:
   explicit KR106VarigatePanel(KR106AudioProcessor& p) : mProc(p), mSeq(p.getSeq())
@@ -34,6 +35,13 @@ public:
   }
 
   void resized() override { layout(); }
+
+  // empty parts of the panel start zoom / pan; buttons and sliders keep their touches
+  bool isBackgroundAt(juce::Point<int> p) const override
+  {
+    for (auto& it : mItems) if (it.r.contains(p)) return false;
+    return stepAt(p, false) < 0;
+  }
 
   void paint(juce::Graphics& g) override
   {

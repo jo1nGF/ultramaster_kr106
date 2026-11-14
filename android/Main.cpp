@@ -259,9 +259,27 @@ private:
   }
 
   // Row layout: every element is (component, width); wraps to the next line.
-  struct Item { juce::Component* c; int w; int h; };
+  // w > 0: a button of that width in the flowing rows; w == -1: a full-width line (header / label);
+  // w == -2: a TABLE ROW (index idx in `rows`): a flexible left part and fixed-width options aligned on the right;
+  // w == -3: a block of COLUMNS (index idx in `columns`), each with a title and a stack of buttons.
+  struct Item { juce::Component* c; int w; int h; int idx = 0; };
   std::vector<Item> items;      // laid out in order by layoutContent()
   struct Break { int index; int gap; };
+  struct TableRow { juce::Component* left; std::vector<std::pair<juce::Component*, int>> options; };
+  struct Column { juce::Label* title; std::vector<juce::Component*> buttons; };
+  std::vector<TableRow> rows;
+  std::vector<std::vector<Column>> columns;
+
+  void addRow(juce::Component* left, std::vector<std::pair<juce::Component*, int>> options, int h = 44)
+  {
+    rows.push_back({ left, std::move(options) });
+    items.push_back({ left, -2, h, static_cast<int>(rows.size()) - 1 });
+  }
+  void addColumns(std::vector<Column> cols)
+  {
+    columns.push_back(std::move(cols));
+    items.push_back({ nullptr, -3, 0, static_cast<int>(columns.size()) - 1 });
+  }
 
   void section(const juce::String& title)
   {
@@ -278,22 +296,27 @@ private:
   {
     repaint();                       // the title changes between Options / Saved states
     content.removeAllChildren();
-    labels.clear(); buttons.clear(); items.clear();
+    labels.clear(); buttons.clear(); items.clear(); rows.clear(); columns.clear();
     statusLabel = nullptr; midiLabel = nullptr;
     if (listMode == 1) { buildStateList(); layoutContent(); return; }
     if (listMode == 2) { buildRecordingList(); layoutContent(); return; }
 
     // ---- State ----
     section("State  (whole plug-in setup: patch, delay, arpeggiator, global settings)");
-    items.push_back({ addButton("Save current state...", false, [this] { askStateName(); }), 230, 44 });
-    items.push_back({ addButton("Load a saved state...", false, [this] { listMode = 1; afterChange(); }), 230, 44 });
-    items.push_back({ addButton("Reset to default state", false, [this] { resetToDefault(); }), 230, 44 });
-    items.push_back({ addButton("Save as default state", false, [this] { saveAsDefault(); }), 230, 44 });
-    items.push_back({ addButton("Remove default state", false, [this] { removeDefault(); }), 230, 44 });
-    items.push_back({ addButton("Export all states (.zip)", false, [this] { exportAll(false); }), 230, 44 });
-    items.push_back({ addButton("Export all > save as...", false, [this] { exportAll(true); }), 230, 44 });
-    items.push_back({ addButton("Import state / zip...", false, [this] { importStates(); }), 230, 44 });
-    items.push_back({ addButton("WAV recordings...", false, [this] { listMode = 2; afterChange(); }), 230, 44 });
+    addColumns({
+      { addLabel("Current state", 14.f, juce::Colour(0xffe0e0e0), true),
+        { addButton("Save current state...", false, [this] { askStateName(); }),
+          addButton("Load a saved state...", false, [this] { listMode = 1; afterChange(); }),
+          addButton("Reset to default state", false, [this] { resetToDefault(); }) } },
+      { addLabel("Start-up state", 14.f, juce::Colour(0xffe0e0e0), true),
+        { addButton("Save as default state", false, [this] { saveAsDefault(); }),
+          addButton("Remove default state", false, [this] { removeDefault(); }) } },
+      { addLabel("Backup", 14.f, juce::Colour(0xffe0e0e0), true),
+        { addButton("Export all states (.zip)", false, [this] { exportAll(false); }),
+          addButton("Export all > save as...", false, [this] { exportAll(true); }),
+          addButton("Import state / zip...", false, [this] { importStates(); }) } },
+      { addLabel("Recordings", 14.f, juce::Colour(0xffe0e0e0), true),
+        { addButton("Recordings (WAV / OGG)...", false, [this] { listMode = 2; afterChange(); }) } } });
     auto* msg = addLabel(stateMessage.isEmpty() ? defaultStateText() : stateMessage + "\n" + defaultStateText(),
                          13.f, juce::Colour(0xffbdbdbd));
     items.push_back({ msg, -1, 40 });
@@ -385,6 +408,43 @@ private:
     int rowH = 0;
     for (auto& it : items)
     {
+      if (it.w == -2)                            // table row: name on the left, options aligned on the right
+      {
+        if (rowOpen) { y += rowH + gap; x = pad; rowOpen = false; }
+        const auto& r = rows[static_cast<size_t>(it.idx)];
+        int actW = 0;
+        for (auto& o : r.options) actW += o.second + gap;
+        const int leftW = std::max(120, W - 2 * pad - actW);
+        r.left->setBounds(pad, y, leftW, it.h);
+        int ax = pad + leftW + gap;
+        for (auto& o : r.options) { o.first->setBounds(ax, y, o.second, it.h); ax += o.second + gap; }
+        y += it.h + gap;
+        continue;
+      }
+      if (it.w == -3)                            // columns of buttons, each with a title
+      {
+        if (rowOpen) { y += rowH + gap; x = pad; rowOpen = false; }
+        const auto& cols = columns[static_cast<size_t>(it.idx)];
+        const int n = static_cast<int>(cols.size());
+        const int perRow = std::max(1, std::min(n, (W - 2 * pad + 2 * gap) / (210 + 2 * gap)));
+        const int colW = std::min(320, (W - 2 * pad - (perRow - 1) * 2 * gap) / perRow);
+        y += 6;
+        for (int start = 0; start < n; start += perRow)
+        {
+          int blockH = 0;
+          for (int k = 0; k < perRow && start + k < n; k++)
+          {
+            const auto& col = cols[static_cast<size_t>(start + k)];
+            const int cx = pad + k * (colW + 2 * gap);
+            int cy = y;
+            col.title->setBounds(cx, cy, colW, 22); cy += 26;
+            for (auto* b : col.buttons) { b->setBounds(cx, cy, colW, 44); cy += 44 + gap; }
+            blockH = std::max(blockH, cy - y);
+          }
+          y += blockH + gap;
+        }
+        continue;
+      }
       if (it.w < 0)                              // full-width line (header / label)
       {
         if (rowOpen) { y += rowH + gap; x = pad; rowOpen = false; }
@@ -411,7 +471,9 @@ private:
 
   void buildStateList()
   {
-    section("Tap a state to load it  -  Share / Save as export that one state");
+    addRow(addLabel("Tap a state name to load it. Share, Save as and Delete act on that state.", 14.f, juce::Colour(0xffbdbdbd)),
+           { { addButton("Import...", false, [this] { importStates(); }), 130 },
+             { addButton("Back", false, [this] { listMode = 0; pendingDelete.clear(); afterChange(); }), 130 } });
     if (stateMessage.isNotEmpty()) note(stateMessage, 22);
     auto files = statesDir().findChildFiles(juce::File::findFiles, false, "*.kr106state");
     files.sort();
@@ -420,41 +482,43 @@ private:
     for (auto& f : files)
     {
       auto label = f.getFileNameWithoutExtension() + "    " + f.getLastModificationTime().formatted("%d/%m %H:%M");
-      items.push_back({ addButton(label, false, [this, f] { loadStateFile(f); }), 300, 44 });
-      items.push_back({ addButton("Share", false, [this, f] { shareFile(f, [this](const juce::String& e) { setMessage(e.isEmpty() ? juce::String("Shared.") : e); }); }), 84, 44 });
-      items.push_back({ addButton("Save as...", false, [this, f] { saveFileAs(f, f.getFileName(), "*.kr106state", [this](const juce::String& m) { setMessage(m); }); }), 110, 44 });
       const bool pending = (pendingDelete == f.getFullPathName());
-      items.push_back({ addButton(pending ? "Confirm delete" : "Delete", pending, [this, f] {
-                          if (pendingDelete == f.getFullPathName()) { f.deleteFile(); pendingDelete.clear(); }
-                          else pendingDelete = f.getFullPathName();
-                          afterChange(); }), 130, 44 });
+      addRow(addButton(label, false, [this, f] { loadStateFile(f); }),
+             { { addButton("Share", false, [this, f] { shareFile(f, [this](const juce::String& e) { setMessage(e.isEmpty() ? juce::String("Shared.") : e); }); }), 84 },
+               { addButton("Save as...", false, [this, f] { saveFileAs(f, f.getFileName(), "*.kr106state", [this](const juce::String& m) { setMessage(m); }); }), 110 },
+               { addButton(pending ? "Confirm delete" : "Delete", pending, [this, f] {
+                   if (pendingDelete == f.getFullPathName()) { f.deleteFile(); pendingDelete.clear(); }
+                   else pendingDelete = f.getFullPathName();
+                   afterChange(); }), 130 } });
     }
-    items.push_back({ addButton("Back", false, [this] { listMode = 0; pendingDelete.clear(); afterChange(); }), 130, 44 });
-    items.push_back({ addButton("Import...", false, [this] { importStates(); }), 130, 44 });
+    addRow(addLabel("", 13.f, juce::Colours::white),
+           { { addButton("Import...", false, [this] { importStates(); }), 130 },
+             { addButton("Back", false, [this] { listMode = 0; pendingDelete.clear(); afterChange(); }), 130 } });
   }
 
   void buildRecordingList()
   {
-    section("WAV recordings (24-bit stereo, what the speakers got)");
+    section("Recordings (WAV 24-bit or Ogg 128 kbps, stereo, what the speakers got)");
     if (stateMessage.isNotEmpty()) note(stateMessage, 22);
-    auto files = recordingsDir().findChildFiles(juce::File::findFiles, false, "*.wav");
+    auto files = recordingsDir().findChildFiles(juce::File::findFiles, false, "*.wav;*.ogg");
     files.sort();
     if (files.isEmpty())
       note("No recordings yet. Use the red button on the FX page.", 24);
     for (int i = files.size(); --i >= 0;)                           // newest first
     {
       auto f = files[i];
-      auto label = f.getFileNameWithoutExtension().replace("KR106_", "") + "   " + juce::String(f.getSize() / 1048576.0, 1) + " MB";
-      items.push_back({ addLabelBox(label), 300, 44 });
-      items.push_back({ addButton("Share", false, [this, f] { shareFile(f, [this](const juce::String& e) { setMessage(e.isEmpty() ? juce::String("Shared.") : e); }); }), 84, 44 });
-      items.push_back({ addButton("Save as...", false, [this, f] { saveFileAs(f, f.getFileName(), "*.wav", [this](const juce::String& m) { setMessage(m); }); }), 110, 44 });
+      auto label = f.getFileNameWithoutExtension().replace("KR106_", "") + "   " + f.getFileExtension().substring(1).toUpperCase() + "   " + juce::String(f.getSize() / 1048576.0, 1) + " MB";
       const bool pending = (pendingDelete == f.getFullPathName());
-      items.push_back({ addButton(pending ? "Confirm delete" : "Delete", pending, [this, f] {
-                          if (pendingDelete == f.getFullPathName()) { f.deleteFile(); pendingDelete.clear(); }
-                          else pendingDelete = f.getFullPathName();
-                          afterChange(); }), 130, 44 });
+      addRow(addLabelBox(label),
+             { { addButton("Share", false, [this, f] { shareFile(f, [this](const juce::String& e) { setMessage(e.isEmpty() ? juce::String("Shared.") : e); }); }), 84 },
+               { addButton("Save as...", false, [this, f] { saveFileAs(f, f.getFileName(), "*" + f.getFileExtension(), [this](const juce::String& m) { setMessage(m); }); }), 110 },
+               { addButton(pending ? "Confirm delete" : "Delete", pending, [this, f] {
+                   if (pendingDelete == f.getFullPathName()) { f.deleteFile(); pendingDelete.clear(); }
+                   else pendingDelete = f.getFullPathName();
+                   afterChange(); }), 130 } });
     }
-    items.push_back({ addButton("Back", false, [this] { listMode = 0; pendingDelete.clear(); afterChange(); }), 130, 44 });
+    addRow(addLabel("", 13.f, juce::Colours::white),
+           { { addButton("Back", false, [this] { listMode = 0; pendingDelete.clear(); afterChange(); }), 130 } });
   }
 
   juce::Component* addLabelBox(const juce::String& text)
@@ -660,7 +724,8 @@ public:
   }
   void audioDeviceAboutToStart(juce::AudioIODevice* d) override
   {
-    rec.stop();                                   // a device restart (buffer / rate change) ends the take
+    // a device restart ends the take only when the sample rate changed (a take goes on when the app comes back from the background)
+    if (rec.isRecording() && std::abs(rec.sampleRate() - d->getCurrentSampleRate()) > 1.0) rec.stop();
     rec.setSampleRate(d->getCurrentSampleRate());
     player.audioDeviceAboutToStart(d);
   }
@@ -699,7 +764,9 @@ public:
       hr.level       = [this] { return recorder.takePeak(); };
       hr.lastName    = [this] { return lastTake.getFileName(); };
       hr.shareLast   = [this] { if (lastTake.existsAsFile()) shareFile(lastTake, [](const juce::String&) {}); };
-      hr.saveLastAs  = [this] { if (lastTake.existsAsFile()) saveFileAs(lastTake, lastTake.getFileName(), "*.wav", [](const juce::String&) {}); };
+      hr.saveLastAs  = [this] { if (lastTake.existsAsFile()) saveFileAs(lastTake, lastTake.getFileName(), "*" + lastTake.getFileExtension(), [](const juce::String&) {}); };
+      hr.format       = [this] { return recorder.format(); };
+      hr.toggleFormat = [this] { if (!recorder.isRecording()) recorder.setFormat(recorder.format() == 0 ? 1 : 0); };
     }
 
     editor.reset(processor->createEditor());
@@ -754,7 +821,7 @@ public:
 
   void saveState()
   {
-    if (recorder.isRecording()) recorder.stop();       // closes the WAV properly before Android may kill us
+    // (a take keeps running while the app is in the background; it is closed when the app quits)
     juce::MemoryBlock mb;
     processor->getStateInformation(mb);
     auto f = stateFile();
@@ -849,7 +916,7 @@ private:
       lastTake = recorder.file();
       return;
     }
-    auto f = recordingsDir().getChildFile("KR106_" + juce::Time::getCurrentTime().formatted("%Y-%m-%d_%H-%M-%S") + ".wav");
+    auto f = recordingsDir().getChildFile("KR106_" + juce::Time::getCurrentTime().formatted("%Y-%m-%d_%H-%M-%S") + recorder.extension());
     if (recorder.start(f)) lastTake = f;
   }
 

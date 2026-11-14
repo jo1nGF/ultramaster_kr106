@@ -601,6 +601,9 @@ KR106AudioProcessor::KR106AudioProcessor()
     for (int i = 0; i < 12; i++) if (m & (1u << i)) t += juce::String(kr106::kNoteNames[i]) + " ";
     return t.isEmpty() ? juce::String("(none)") : t.trim();
   };
+  addBool(kSettingChorusNoise, "Chorus Noise", true);
+  addBool(kSettingFreeStrum, "Strum/Ratchet without Arp", false);
+
   addSlider(kScaleType, "Scale Type", 0.f, 0.f, 1.f, fmtScaleType);
   addSlider(kScaleRoot, "Scale Root", 0.f, 0.f, 1.f, fmtScaleRoot);
   addSlider(kScaleMask, "Scale Custom Notes", kr106::valueFromCustomMask(0x0AB5), 0.f, 1.f, fmtScaleMask);   // default: C major
@@ -1502,7 +1505,9 @@ static const int kModTargetParam[kr106::kNumModTargets] = {
   kCldPos, kCldSize, kCldPitch, kCldDens, kCldMix, kCldRev, kCldDecay, kCldTone,
   // Arp & limiter
   kArpRate, kArpSwing, kArpGate, kArpRatchet, kArpStrum, kArpProb, kLimCeil,
-  kScaleType, kScaleRoot
+  kScaleType, kScaleRoot,
+  // Performance
+  kBender
 };
 
 // Controls of the Mod page itself: modulating them changes how the sources behave, not the sound directly
@@ -1550,23 +1555,21 @@ void KR106AudioProcessor::applyModulation(int nFrames, const juce::MidiBuffer& /
   src[kr106::kSrcEnv] = mModEnv.Process(nFrames, pv(kModEnvAtt), pv(kModEnvDec), pv(kModEnvSStart),
                                         pv(kModEnvSTime), pv(kModEnvRel), pv(kModEnvAmp), pv(kModEnvVel));
 
-  const bool metro = mDSP.mSeqMode.load(std::memory_order_relaxed) == 1;
-  for (int g = 0; g < kr106::kVgGates; g++)                      // Seq 1-8: Varigate gates, or the Metropolix MOD lanes
-    src[kr106::kSrcGate1 + g] = metro ? mDSP.mMetro.mLaneOut[g].load(std::memory_order_relaxed)
-                                      : mDSP.mSeq.mGateOut[g].load(std::memory_order_relaxed);
-  if (metro)
-  {
-    src[kr106::kSrcTrkCv1] = mDSP.mMetro.mCvOut[0].load(std::memory_order_relaxed);
-    src[kr106::kSrcTrkCv2] = mDSP.mMetro.mCvOut[1].load(std::memory_order_relaxed);
-    src[kr106::kSrcOutA] = mDSP.mMetro.mOutA.load(std::memory_order_relaxed);
-    src[kr106::kSrcOutB] = mDSP.mMetro.mOutB.load(std::memory_order_relaxed);
-  }
+  // Both sequencers play at the same time, so each one has its own sources
+  for (int g = 0; g < kr106::kVgGates; g++)
+    src[kr106::kSrcGate1 + g] = mDSP.mSeq.mGateOut[g].load(std::memory_order_relaxed);          // Varigate gate tracks
+  for (int l = 0; l < kr106::kMxLanes; l++)
+    src[kr106::kSrcLane1 + l] = mDSP.mMetro.mLaneOut[l].load(std::memory_order_relaxed);        // Metropolix MOD lanes
+  for (int t = 0; t < kr106::kMxTracks; t++)
+    src[t < 2 ? kr106::kSrcTrkCv1 + t : kr106::kSrcTrkCv3 + (t - 2)] = mDSP.mMetro.mCvOut[t].load(std::memory_order_relaxed);
+  src[kr106::kSrcOutA] = mDSP.mMetro.mOutA.load(std::memory_order_relaxed);
+  src[kr106::kSrcOutB] = mDSP.mMetro.mOutB.load(std::memory_order_relaxed);
   // Metropolix AUX inputs X, Y, Z: a source of the plugin (an LFO or the envelope) through the attenuverter
   for (int i = 0; i < 3; i++)
   {
     auto& pat = mDSP.mMetro.mPat;
     const int srcIdx = pat.auxSrc[i].get();
-    const float v = (metro && srcIdx >= 1 && srcIdx <= 4) ? src[srcIdx] * (kr106::s8(pat.auxAmt[i]) / 127.f) : 0.f;
+    const float v = (srcIdx >= 1 && srcIdx <= 4) ? src[srcIdx] * (kr106::s8(pat.auxAmt[i]) / 127.f) : 0.f;
     mDSP.mMetro.mAuxIn[i].store(juce::jlimit(-1.f, 1.f, v), std::memory_order_relaxed);
   }
 
@@ -1590,7 +1593,7 @@ void KR106AudioProcessor::applyModulation(int nFrames, const juce::MidiBuffer& /
 
   // glide of the step the sequencer plays: opens Porta for that note (Porta mode has to be on)
   {
-    const float glide = metro ? mDSP.mMetro.mGlideOut.load(std::memory_order_relaxed) : mDSP.mSeq.mGlideOut.load(std::memory_order_relaxed);
+    const float glide = std::max(mDSP.mMetro.mGlideOut.load(std::memory_order_relaxed), mDSP.mSeq.mGlideOut.load(std::memory_order_relaxed));
     if (glide > 0.f) { add[kPortaRate] += glide; hit[kPortaRate] = true; }
   }
 
@@ -1885,11 +1888,12 @@ void KR106AudioProcessor::setStateInformation(const void* data, int sizeInBytes)
   //   modFormat 3: 5 sources (Gate 1-8 came after), targets as now
   //   modFormat 4: 13 sources (the Metropolix CV lanes came after), targets as now
   //   modFormat 5: 15 sources (Out A / Out B came after), targets as now
+  //   modFormat 6: 17 sources (Gate / Lane sources were split after), 67 targets (Pitch Bend came after)
   // Convert all of them to the current encoding.
   if (modFormat < kModFormat)
   {
     const bool v1 = numParams <= kArpStrum;
-    const int oldSources = modFormat >= 5 ? 14 : (modFormat >= 4 ? 12 : 4);   // choices - 1 in the state that is being loaded
+    const int oldSources = modFormat >= 6 ? 16 : (modFormat >= 5 ? 14 : (modFormat >= 4 ? 12 : 4));   // choices - 1 in the state that is being loaded
     for (int r = 0; r < kModRows; r++)
     {
       auto* ps = mParams[kModRouteBase + 3 * r];
@@ -1900,9 +1904,10 @@ void KR106AudioProcessor::setStateInformation(const void* data, int sizeInBytes)
                          : juce::jlimit(0, oldSources, juce::roundToInt(ps->getValue() * static_cast<float>(oldSources)));
         ps->setValueNotifyingHost(kr106::valueFromModSource(o));
       }
-      if (pt != nullptr && modFormat < 3 && kModRouteBase + 3 * r + 1 < numParams)
+      if (pt != nullptr && kModRouteBase + 3 * r + 1 < numParams)
       {
-        const int t = v1 ? kr106::kOldTargetToNew[juce::jlimit(0, kr106::kOldNumTargets - 1, juce::roundToInt(pt->getValue() * (kr106::kOldNumTargets - 1)))]
+        const int t = (modFormat >= 3) ? juce::jlimit(0, kr106::kNumModTargets - 1, juce::roundToInt(pt->getValue() * 66.f))     // 67 targets before Pitch Bend
+                    : v1 ? kr106::kOldTargetToNew[juce::jlimit(0, kr106::kOldNumTargets - 1, juce::roundToInt(pt->getValue() * (kr106::kOldNumTargets - 1)))]
                          : juce::jlimit(0, kr106::kNumModTargets - 1, juce::roundToInt(pt->getValue() * 64.f));
         pt->setValueNotifyingHost(kr106::valueFromModTarget(t));
       }
@@ -2052,6 +2057,8 @@ void KR106AudioProcessor::loadGlobalSettings()
   setParamFromSetting(kSettingMonoRetrig,  (bool)KR106PresetManager::getSetting("monoRetrigger", true)   ? 1.f : 0.f);
   setParamFromSetting(kSettingMidiSysEx,   (bool)KR106PresetManager::getSetting("midiOutSysEx", false)   ? 1.f : 0.f);
   setParamFromSetting(kSettingOscMode,     static_cast<float>((int)KR106PresetManager::getSetting("oscMode", 1)));
+  setParamFromSetting(kSettingChorusNoise, (bool)KR106PresetManager::getSetting("chorusNoise", true)    ? 1.f : 0.f);
+  setParamFromSetting(kSettingFreeStrum,   (bool)KR106PresetManager::getSetting("freeStrum", false)     ? 1.f : 0.f);
 
   // Load MIDI learn CC map (param→CC, multiple params can share a CC)
   auto ccMap = KR106PresetManager::getSetting("midiLearnMap");
@@ -2171,6 +2178,8 @@ void KR106AudioProcessor::saveGlobalSettings()
   { int v = paramInt(kSettingOversample);
     KR106PresetManager::saveSetting("vcfOversample", (v <= 1) ? 1 : (v <= 3) ? 2 : 4); }
   KR106PresetManager::saveSetting("oscMode", paramInt(kSettingOscMode));
+  KR106PresetManager::saveSetting("chorusNoise", paramBool(kSettingChorusNoise));
+  KR106PresetManager::saveSetting("freeStrum", paramBool(kSettingFreeStrum));
 
   // Save noise/drive levels (variance editor)
   KR106PresetManager::saveSetting("analogNoiseMul", static_cast<double>(mDSP.mNoiseFloorMul));

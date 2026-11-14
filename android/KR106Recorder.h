@@ -1,7 +1,8 @@
 #pragma once
 
-// WAV recorder for the Android host: records the final master output (what goes to
-// the speakers, after the limiter) to a 24-bit stereo WAV. Writing happens on a
+// Recorder for the Android host: records the final master output (what goes to
+// the speakers, after the limiter) to a 24-bit stereo WAV, or - the lighter option - an Ogg Vorbis
+// file at 128 kbps (about 10 times smaller). (MP3 would need an encoder library that JUCE does not ship.) Writing happens on a
 // background thread (juce::AudioFormatWriter::ThreadedWriter), so the audio callback
 // only copies samples into a FIFO.
 
@@ -15,6 +16,17 @@ public:
   ~KR106Recorder() { stop(); mThread.stopThread(3000); }
 
   void setSampleRate(double sr) { mSampleRate = sr; }
+  double sampleRate() const { return mSampleRate; }
+
+  // 0 = WAV 24-bit, 1 = Ogg Vorbis 128 kbps (only when JUCE was built with JUCE_USE_OGGVORBIS)
+#if JUCE_USE_OGGVORBIS
+  static bool oggAvailable() { return true; }
+#else
+  static bool oggAvailable() { return false; }
+#endif
+  void setFormat(int f) { mFormat = (f == 1 && oggAvailable()) ? 1 : 0; }
+  int format() const { return mFormat; }
+  const char* extension() const { return mFormat == 1 ? ".ogg" : ".wav"; }
 
   // Starts a take into 'file' (overwritten). False if the file cannot be created.
   bool start(const juce::File& file)
@@ -24,8 +36,22 @@ public:
     file.deleteFile();
     auto os = file.createOutputStream();
     if (os == nullptr) return false;
-    juce::WavAudioFormat wav;
-    std::unique_ptr<juce::AudioFormatWriter> w(wav.createWriterFor(os.get(), mSampleRate, 2, 24, {}, 0));
+    std::unique_ptr<juce::AudioFormatWriter> w;
+#if JUCE_USE_OGGVORBIS
+    if (mFormat == 1)
+    {
+      juce::OggVorbisAudioFormat ogg;
+      int q = 4;                                               // the "128 kbps" quality option
+      const auto options = ogg.getQualityOptions();
+      for (int i = 0; i < options.size(); i++) if (options[i].contains("128")) q = i;
+      w.reset(ogg.createWriterFor(os.get(), mSampleRate, 2, 16, {}, q));
+    }
+    else
+#endif
+    {
+      juce::WavAudioFormat wav;
+      w.reset(wav.createWriterFor(os.get(), mSampleRate, 2, 24, {}, 0));
+    }
     if (w == nullptr) return false;
     os.release();                                            // the writer owns the stream now
     mWriter = std::make_unique<juce::AudioFormatWriter::ThreadedWriter>(w.release(), mThread, 262144);   // ~5 s of FIFO: survives a slow disk write on a phone
@@ -72,6 +98,7 @@ public:
   }
 
 private:
+  int mFormat = 0;
   juce::TimeSliceThread mThread;
   std::unique_ptr<juce::AudioFormatWriter::ThreadedWriter> mWriter;
   std::atomic<juce::AudioFormatWriter::ThreadedWriter*> mActive { nullptr };

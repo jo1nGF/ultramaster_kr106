@@ -578,6 +578,7 @@ public:
     (void)inputs;
     for (int c = 0; c < nOutputs; c++)
       memset(outputs[c], 0, nFrames * sizeof(T));
+    if (mFreeStrum) FreeProcess(nFrames);
 
     if (static_cast<int>(mLFOBuffer.size()) < nFrames)
     {
@@ -650,19 +651,13 @@ public:
       [this](int note, int offset) { SendToSynth(note, true,  127, offset); },
       [this](int note, int offset) { SendToSynth(note, false, 0,   offset); });
 
-    // Step sequencers (Seq page): only the selected one plays, straight into the voices like the arpeggiator
+    // Step sequencers (Seq page): both play at the same time, straight into the voices like the arpeggiator.
+    // (mSeqMode only says which one the Seq page shows.)
     {
-      const int seqMode = mSeqMode.load(std::memory_order_relaxed);
-      if (seqMode != mSeqModePrev)                                 // switched: the one that played stops
-      {
-        auto off = [this](int note, int offset) { SendToSynth(note, false, 0, offset); };
-        if (mSeqModePrev == 0) mSeq.StopAll(off); else mMetro.StopAll(off);
-        mSeqModePrev = seqMode;
-      }
       auto on  = [this](int note, int offset) { SendToSynth(note, true,  100, offset); };
       auto off = [this](int note, int offset) { SendToSynth(note, false, 0,   offset); };
-      if (seqMode == 0) mSeq.Process(nFrames, on, off);
-      else              mMetro.Process(nFrames, on, off);
+      mSeq.Process(nFrames, on, off);
+      mMetro.Process(nFrames, on, off);
     }
 
     // Drift walk update (per buffer is plenty for sub-Hz LFOs).
@@ -897,6 +892,7 @@ public:
     mArp.SetSampleRate(mSampleRate);
     mSeq.SetSampleRate(mSampleRate);
     mMetro.SetSampleRate(mSampleRate);
+    mArp.mSampleRate = mSampleRate;
     mNoise.SetSampleRate(mSampleRate);
     mLFOBuffer.resize(blockSize);
     mLFORawBuffer.resize(blockSize);
@@ -942,10 +938,76 @@ public:
     // second voice for the same pitch.
     if (mKeysDown.test(note)) return;
     mKeysDown.set(note);
-    if (mSeqMode.load(std::memory_order_relaxed) == 0 && mSeq.mRecArm.load(std::memory_order_relaxed))
+    if (mSeq.mRecArm.load(std::memory_order_relaxed))
       mSeq.RecordEvent(mSeq.mRecTrack.load(std::memory_order_relaxed), note);               // live recording on the Seq page
     if (mArp.mEnabled) { mArp.NoteOn(note); return; }
+    if (mFreeStrum) { FreeNoteOn(note, velocity); return; }                  // strum / ratchet without the arp
     SendToSynth(note, true, velocity, 0);
+  }
+
+  // ---- STRUM and RATCHET without the arpeggiator ---------------------------------------------------
+  // With the setting on, notes that arrive together (a chord: within 45 ms of the first note) are played one
+  // after the other, low to high in the order they came, spaced by the Strum amount (0 .. 80 ms per note).
+  // The Ratchet repeats every note 2-4 times inside one arp step (its rate / division sets the time).
+  struct FreeNote { int note = 0, vel = 0, left = 0; bool ratchet = false; int next = 0, period = 0, hits = 0; bool active = false; };
+  static constexpr int kFreeSlots = 96;
+  FreeNote mFree[kFreeSlots];
+  bool mFreeStrum = false;
+  int mChordIdx = 0, mChordSince = 1 << 30;                       // notes in the current chord, samples since its first note
+
+  void FreeNoteOn(int note, int velocity)
+  {
+    const float sr = mSampleRate;
+    if (mChordSince > static_cast<int>(0.045f * sr)) { mChordIdx = 0; mChordSince = 0; }      // a new chord
+    else mChordIdx++;
+    const float strum = std::max(0.f, std::min(1.f, mArp.mStrum));
+    const int gap = static_cast<int>(strum * 0.08f * sr);
+    const int delay = (strum <= 0.005f) ? 0 : std::max(0, mChordIdx * gap - mChordSince);
+    if (delay <= 0) { FreeFire(note, velocity); return; }
+    for (auto& f : mFree)
+      if (!f.active) { f = FreeNote(); f.active = true; f.note = note; f.vel = velocity; f.left = delay; return; }
+    FreeFire(note, velocity);                                     // no free slot: play it now
+  }
+  void FreeFire(int note, int velocity)
+  {
+    SendToSynth(note, true, velocity, 0);
+    const int hits = std::max(1, std::min(4, mArp.mRatchet));
+    if (hits <= 1) return;
+    const int period = std::max(64, static_cast<int>(mArp.StepSamplesNow() / static_cast<float>(hits)));
+    for (auto& f : mFree)
+      if (!f.active) { f = FreeNote(); f.active = true; f.ratchet = true; f.note = note; f.vel = velocity; f.period = period; f.next = period; f.hits = hits - 1; return; }
+  }
+  // true when the note was still waiting for its strum time (it never sounded)
+  bool FreeCancel(int note)
+  {
+    bool wasWaiting = false;
+    for (auto& f : mFree)
+      if (f.active && f.note == note) { if (!f.ratchet) wasWaiting = true; f.active = false; }
+    return wasWaiting;
+  }
+  void FreeProcess(int nFrames)
+  {
+    if (mChordSince < (1 << 29)) mChordSince += nFrames;
+    for (auto& f : mFree)
+    {
+      if (!f.active) continue;
+      if (!f.ratchet)
+      {
+        f.left -= nFrames;
+        if (f.left <= 0) { f.active = false; FreeFire(f.note, f.vel); }
+      }
+      else
+      {
+        f.next -= nFrames;
+        while (f.active && f.next <= 0 && f.hits > 0)
+        {
+          SendToSynth(f.note, false, 0, 0);
+          SendToSynth(f.note, true, f.vel, 0);
+          f.hits--; f.next += f.period;
+        }
+        if (f.hits <= 0) f.active = false;
+      }
+    }
   }
 
   void NoteOff(int note)
@@ -955,6 +1017,7 @@ public:
     // ROM XOR-with-saved-state dispatch at $01F8: no change, no action).
     if (!mKeysDown.test(note)) return;
     mKeysDown.reset(note);
+    if (!mHold && FreeCancel(note) && !mArp.mEnabled) return;               // released before its strum time: it never sounded
     if (mArp.mEnabled)
     {
       if (mHold) mHeldNotes.set(note);
@@ -992,8 +1055,7 @@ public:
   kr106::Arpeggiator mArp;
   kr106::VarigateSeq mSeq;                 // Varigate-style step sequencer (Seq page)
   kr106::MetropolixSeq mMetro;              // Metropolix-style step sequencer (Seq page)
-  std::atomic<int> mSeqMode { 0 };            // 0 = Varigate, 1 = Metropolix
-  int mSeqModePrev = 0;
+  std::atomic<int> mSeqMode { 0 };            // which sequencer the Seq page shows: 0 = Varigate, 1 = Metropolix
 
   float mVcaLevel = 1.f;
   float mVcaLevelSmooth = 1.f;
@@ -1155,6 +1217,7 @@ public:
 
   void AllNotesOff()
   {
+    for (auto& f : mFree) f.active = false;
     mArp.Reset();
     mSeq.ForgetNotes();
     mMetro.ForgetNotes();

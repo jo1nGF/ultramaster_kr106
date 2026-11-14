@@ -420,7 +420,16 @@ KR106Editor::KR106Editor(KR106AudioProcessor& p)
             juce::Colour(0xffff9a2a)), x0 + 8, ty + 122, wFx[2] - 16, 22);
     }
     {   // WAV RECORDER (records the final master output)
-        int x0 = xFx[3], ty = kRowA; tile("WAV recorder", x0, ty, wFx[3], true);
+        int x0 = xFx[3], ty = kRowA; tile("Recorder", x0, ty, wFx[3], true);
+        {   // WAV 24-bit <-> Ogg Vorbis 128 kbps (the lighter file)
+            auto label = []() { auto& h = kr106touch::hostRecorder(); return juce::String(h.format && h.format() == 1 ? "OGG 128" : "WAV 24"); };
+            auto holder = std::make_shared<KR106TouchTextButton*>(nullptr);
+            auto* fb = new KR106TouchTextButton(label(), [holder, label]() {
+                auto& h = kr106touch::hostRecorder();
+                if (h.toggleFormat) h.toggleFormat();
+                if (*holder) (*holder)->setText(label()); });
+            *holder = add(fb, x0 + wFx[3] - 80, ty + 2, 74, 16);
+        }
         add(new KR106TouchRecorder(), x0 + 8, ty + 30, wFx[3] - 16, 72);
         add(new KR106TouchTextButton("Share last", []() { if (auto f = kr106touch::hostRecorder().shareLast) f(); }),
             x0 + 8, ty + 112, 98, 32);
@@ -555,6 +564,39 @@ KR106Editor::KR106Editor(KR106AudioProcessor& p)
     mControls.add(mKeyboard);
     mKeyboard->setBounds(0, 0, 792, 114);
 
+    // MIDI learn by tapping: the "CC" button (top bar) arms it; a tap on a control starts the learn for that control
+    mTapOverlay = new KR106LearnTapOverlay();
+    add(mTapOverlay, 0, 0, kBaseWidth, kBaseHeight);
+    mTapOverlay->setVisible(false);
+    mTapOverlay->outlines = [this]() {
+        std::vector<juce::Rectangle<int>> v;
+        for (auto& lc : mLearnableControls)
+            if (lc.ctrl != nullptr && lc.ctrl->isShowing()) v.push_back(lc.ctrl->getBoundsInParent());
+        return v;
+    };
+    mTapOverlay->passThrough = [this](juce::Point<int> pt) {
+        return mPageTabs != nullptr && mPageTabs->getBounds().contains(pt);          // the tabs keep working
+    };
+    mTapOverlay->onTap = [this](juce::Point<int> pt) {
+        int best = -1; float bestD = 1e9f;
+        for (auto& lc : mLearnableControls)
+        {
+            if (lc.ctrl == nullptr || !lc.ctrl->isShowing()) continue;
+            const auto r = lc.ctrl->getBoundsInParent().expanded(4);
+            if (!r.contains(pt)) continue;
+            const float d = r.getCentre().toFloat().getDistanceFrom(pt.toFloat());
+            if (d < bestD) { bestD = d; best = lc.paramIdx; }
+        }
+        if (best >= 0) { mProcessor.startMidiLearn(best); mTooltip.hide(); if (mLearnBar) mLearnBar->tick(); }
+    };
+    mCcBtn = add(new KR106TouchTextButton("CC", [this]() {
+        mTapLearn = !mTapLearn;
+        mCcBtn->setActive(mTapLearn);
+        mTapOverlay->setVisible(mTapLearn);
+        if (mTapLearn) { mTapOverlay->toFront(false); if (mLearnBar) mLearnBar->toFront(false); }
+        else mProcessor.cancelMidiLearn();
+    }), 798, 52, 30, 18);
+
     // MIDI learn bar: its own strip below the tiles, so the message never covers a control or a value
     mLearnBar = new KR106LearnBar(p);
     add(mLearnBar, 8, kBaseHeight - 32, 854, 28);
@@ -578,11 +620,25 @@ KR106Editor::KR106Editor(KR106AudioProcessor& p)
     // Zoom / pan: drag on any empty area, pinch with two fingers on empty areas,
     // double-tap empty area to toggle 100% <-> 200%.
     mPanZoom.isBackground = [this](juce::Component* c) { return c == &mContent || c == this; };
+    mPanZoom.isBackgroundEvent = [this](const juce::MouseEvent& e) {
+        auto* c = e.eventComponent;
+        if (c == &mContent || c == this) return true;
+        if (c == mTapOverlay) return false;
+        if (auto* pb = dynamic_cast<kr106touch::PanelBackground*>(c)) return pb->isBackgroundAt(e.getPosition());   // the sequencer panels
+        return false;
+    };
     mPanZoom.toLocal = [this](juce::Point<float> sp) { return getLocalPoint(nullptr, sp); };
     mPanZoom.onPan = [this](juce::Point<float> d) { mTx += d.x; mTy += d.y; updateTouchTransform(); };
     mPanZoom.onPinch = [this](float f, juce::Point<float> focal) { setTouchZoom(mZoom * f, focal); };
     mPanZoom.onDoubleTap = [this](juce::Point<float> p) { setTouchZoom(mZoom > 1.05f ? 1.f : 2.f, p); };
     addMouseListener(&mPanZoom, true);
+    // swipe up from the bottom edge (on an empty part) opens the keyboard
+    mSwipeUp.startOk = [this](const juce::MouseEvent& e) {
+        if (mZoom > 1.05f || mKeysSheet != nullptr || !mPanZoom.isBackgroundEvent || !mPanZoom.isBackgroundEvent(e)) return false;
+        return e.getEventRelativeTo(this).getPosition().y > getHeight() - 28;
+    };
+    mSwipeUp.onSwipe = [this]() { showKeysSheet(); };
+    addMouseListener(&mSwipeUp, true);
 #else
     // Power section
     add(new KR106PowerSwitch(param(kPower)),              46,  40,  15, 19);
@@ -789,6 +845,7 @@ KR106Editor::~KR106Editor()
 #if KR106_TOUCH
     mContent.removeMouseListener(&mLongPress);
     removeMouseListener(&mPanZoom);
+    removeMouseListener(&mSwipeUp);
     mKeysSheet.reset();
     mChoiceMenu.reset();
 #endif
@@ -948,6 +1005,8 @@ void KR106Editor::showSettingsMenu()
     items.push_back(KR106MenuItem::item(25, "Sync LFO to Host",      true, mProcessor.mLfoSyncHost));
     items.push_back(KR106MenuItem::item(22, "Mono Retrigger",        true, mProcessor.mMonoRetrigger));
     items.push_back(KR106MenuItem::item(26, "SEND MIDI SysEx",       true, mProcessor.mMidiOutSysEx));
+    items.push_back(KR106MenuItem::item(44, "Chorus Noise",          true, mProcessor.getParam(kSettingChorusNoise)->getValue() > 0.5f));
+    items.push_back(KR106MenuItem::item(45, "Strum/Ratchet w/o Arp", true, mProcessor.getParam(kSettingFreeStrum)->getValue() > 0.5f));
     items.push_back(KR106MenuItem::sep());
     { auto* oscP = mProcessor.getParam(kSettingOscMode);
       bool blep = oscP && oscP->getValue() > 0.5f;
@@ -992,6 +1051,8 @@ void KR106Editor::showSettingsMenu()
             if (r == 25) toggleBoolParam(kSettingLfoSync);
             if (r == 22) toggleBoolParam(kSettingMonoRetrig);
             if (r == 26) toggleBoolParam(kSettingMidiSysEx);
+            if (r == 44) toggleBoolParam(kSettingChorusNoise);
+            if (r == 45) toggleBoolParam(kSettingFreeStrum);
             if (r == 28 || r == 29)
             {
                 auto* p = mProcessor.getParam(kSettingOscMode);
@@ -1054,6 +1115,8 @@ void KR106Editor::showChoiceMenu(const juce::StringArray& names, int current,
     for (int i = 0; i < names.size(); i++)
         items.push_back(KR106MenuItem::makeRadio(i + 1, names[i], i == current));
 
+    // long lists (the 27 modulation sources) go in two columns
+    const int columnBreak = items.size() > 14 ? static_cast<int>((items.size() + 1) / 2) : -1;
     mChoiceMenu = std::make_unique<KR106MenuSheet>(std::move(items), mMenuTypeface,
         [this, onPick](int r)
         {
@@ -1062,7 +1125,7 @@ void KR106Editor::showChoiceMenu(const juce::StringArray& names, int current,
             auto pick = onPick;
             mChoiceMenu.reset();
             if (r > 0 && pick) pick(r - 1);
-        });
+        }, columnBreak);
 
     int menuW = mChoiceMenu->calcWidth(), menuH = mChoiceMenu->calcHeight();
     int menuX = juce::jlimit(0, juce::jmax(0, kBaseWidth - menuW), anchor.getX());

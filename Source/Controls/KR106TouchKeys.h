@@ -603,7 +603,7 @@ private:
 
 // ---------------------------------------------------------------------------
 // Bottom sheet: title row (octave -/+, bender, close) + keys.
-class KR106TouchKeysSheet : public juce::Component
+class KR106TouchKeysSheet : public juce::Component, private juce::Timer
 {
 public:
   std::function<void()> onClose;
@@ -616,8 +616,11 @@ public:
     mUp   = std::make_unique<KR106TouchTextButton>("Oct +", [this] { mKeys.shiftOctave(+1); updateRange(); });
     mClose = std::make_unique<KR106TouchTextButton>("Close", [this] { if (onClose) onClose(); }, juce::Colour(0xff9a0e0e));
     addAndMakeVisible(*mDown); addAndMakeVisible(*mUp); addAndMakeVisible(*mClose);
+    mHold = std::make_unique<KR106TouchToggle>("Hold", p != nullptr ? p->getParam(kHold) : nullptr);     // latches the notes (the Hold button of the synth)
+    addAndMakeVisible(*mHold);
     if (mBender) addAndMakeVisible(mBender.get());
     updateRange();
+    startTimerHz(8);
   }
 
   void paint(juce::Graphics& g) override
@@ -637,6 +640,7 @@ public:
     const int pad = 8, hdr = 36;
     mDown->setBounds(pad, 5, 60, 28);
     mUp->setBounds(pad + 178, 5, 60, 28);
+    mHold->setBounds(pad + 250, 5, 84, 28);
     mClose->setBounds(getWidth() - pad - 70, 5, 70, 28);
     if (mBender)   // native 60x12, drawn 2.2x (132x26); transform includes the position
     {
@@ -655,6 +659,7 @@ public:
   }
 
 private:
+  void timerCallback() override { if (mHold) mHold->refresh(); }
   void updateRange()
   {
     int s = mKeys.getStartNote();
@@ -664,6 +669,7 @@ private:
   KR106TouchKeys mKeys;
   std::unique_ptr<juce::Component> mBender;
   std::unique_ptr<KR106TouchTextButton> mDown, mUp, mClose;
+  std::unique_ptr<KR106TouchToggle> mHold;
   juce::String mRange;
   float mSwipeStart = -1.f;
 };

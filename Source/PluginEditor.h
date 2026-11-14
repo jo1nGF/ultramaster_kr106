@@ -62,6 +62,23 @@ private:
     KR106TouchChoice* mScaleBtn = nullptr;
     kr106touch::LongPress mLongPress;
     KR106LearnBar* mLearnBar = nullptr;   // owned by mControls
+    KR106LearnTapOverlay* mTapOverlay = nullptr;   // owned by mControls: MIDI learn by tapping a control
+    KR106TouchTextButton* mCcBtn = nullptr;
+    bool mTapLearn = false;
+    // swipe up from the bottom edge opens the keyboard
+    struct SwipeUp : juce::MouseListener
+    {
+        std::function<bool(const juce::MouseEvent&)> startOk;
+        std::function<void()> onSwipe;
+        bool tracking = false;
+        int startY = 0;
+        void mouseDown(const juce::MouseEvent& e) override { tracking = startOk && startOk(e); startY = e.getScreenY(); }
+        void mouseDrag(const juce::MouseEvent& e) override
+        {
+            if (tracking && startY - e.getScreenY() > 48) { tracking = false; if (onSwipe) onSwipe(); }
+        }
+        void mouseUp(const juce::MouseEvent&) override { tracking = false; }
+    } mSwipeUp;
 
     // Touch UI zoom / pan (zoom is relative to the "fit to window" scale)
     float mZoom = 1.f, mTx = 0.f, mTy = 0.f;

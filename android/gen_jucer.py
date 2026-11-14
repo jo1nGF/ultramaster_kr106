@@ -75,7 +75,7 @@ xml = f'''<?xml version="1.0" encoding="UTF-8"?>
   <MODULES>
 ''' + "\n".join(f'    <MODULE id="{m}" showAllCode="1" useLocalCopy="0" useGlobalPath="0"/>' for m in mods) + '''
   </MODULES>
-  <JUCEOPTIONS JUCE_WEB_BROWSER="0" JUCE_USE_CURL="0" JUCE_USE_ANDROID_OBOE="1"/>
+  <JUCEOPTIONS JUCE_WEB_BROWSER="0" JUCE_USE_CURL="0" JUCE_USE_ANDROID_OBOE="1" JUCE_USE_OGGVORBIS="1"/>
   <LIVE_SETTINGS/>
 </JUCERPROJECT>
 '''

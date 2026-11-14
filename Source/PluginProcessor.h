@@ -51,7 +51,7 @@ enum EParams
   // Clouds (granular)
   kCldPos, kCldSize, kCldPitch, kCldDens, kCldTex, kCldSpread, kCldFb, kCldRev, kCldMix, kCldFreeze,
   kModFirst,   // modulation block: LFOs, envelope, 12-slot matrix (global, not in presets)
-  kNumParams = kModFirst + 75
+  kNumParams = kModFirst + 77
 };
 
 // Offsets into the modulation block (see KR106ModEngine.h for what each control does)
@@ -78,8 +78,11 @@ constexpr int kScaleMask = kModFirst + 66;    // custom scale: 12-bit mask of al
 constexpr int kLfo3Wave = kModFirst + 67, kLfo3Rate = kModFirst + 68, kLfo3Amt = kModFirst + 69,
               kLfo3Delay = kModFirst + 70, kLfo3Retrig = kModFirst + 71, kLfo3SH = kModFirst + 72,
               kLfo3Smooth = kModFirst + 73, kLfo3Phase = kModFirst + 74;
+// Settings added later (live: not part of presets)
+constexpr int kSettingChorusNoise = kModFirst + 75;   // bool: the noise of the chorus (off = a clean chorus)
+constexpr int kSettingFreeStrum = kModFirst + 76;     // bool: strum and ratchet also work without the arp (MIDI chords)
 constexpr int kNumModLfos = 3;
-constexpr int kModFormat = 6;    // version of the matrix Source / Target encoding written to the state
+constexpr int kModFormat = 7;    // version of the matrix Source / Target encoding written to the state
 
 class KR106AudioProcessor : public juce::AudioProcessor
 {
@@ -179,19 +182,13 @@ public:
   kr106::ModLFO mModLfo[kNumModLfos];
   kr106::ModEnv mModEnv;
   uint32_t mSeenOns = 0, mSeenOffs = 0;
-  std::atomic<float> mModSrcLast[kr106::kNumModSources] { {0.f}, {0.f}, {0.f}, {0.f}, {0.f}, {0.f}, {0.f}, {0.f}, {0.f}, {0.f}, {0.f}, {0.f}, {0.f}, {0.f}, {0.f}, {0.f}, {0.f} };   // LFO 1-3, envelope, seq 1-8, trk CV 1-2, out A-B: last values
+  std::atomic<float> mModSrcLast[kr106::kNumModSources] { {0.f}, {0.f}, {0.f}, {0.f}, {0.f}, {0.f}, {0.f}, {0.f}, {0.f}, {0.f}, {0.f}, {0.f}, {0.f}, {0.f}, {0.f}, {0.f}, {0.f}, {0.f}, {0.f}, {0.f}, {0.f}, {0.f}, {0.f}, {0.f}, {0.f}, {0.f}, {0.f} };   // all the modulation sources: last values
   // Value a control should show: the modulated value while the matrix drives it, else the user value
   float modDisplayValue(int p) const { return (p >= 0 && p < kNumParams && mModActive[p]) ? mModSent[p] : (mParams[p] ? mParams[p]->getValue() : 0.f); }
   kr106::VarigateSeq& getSeq() { return mDSP.mSeq; }       // the step sequencers (Seq page)
   kr106::MetropolixSeq& getMetro() { return mDSP.mMetro; }
   int getSeqMode() const { return mDSP.mSeqMode.load(); }  // 0 = Varigate, 1 = Metropolix
-  void setSeqMode(int m)                                    // the one that was playing stops
-  {
-    m = m ? 1 : 0;
-    if (m == mDSP.mSeqMode.load()) return;
-    mDSP.mSeq.mRun.store(false); mDSP.mMetro.mRun.store(false);
-    mDSP.mSeqMode.store(m);
-  }
+  void setSeqMode(int m) { mDSP.mSeqMode.store(m ? 1 : 0); }   // only picks the sequencer the Seq page shows: both keep playing
 
   // Modulation envelope state for the on-screen display (stage 0 idle .. 4 release, seconds in stage, raw level)
   std::atomic<int>   mModEnvStage { 0 };

@@ -34,7 +34,8 @@ void KR106DSP<T>::SetParam(int paramIdx, double value)
     kLimOn, kLimCeil, kLimRel,
     kCldPos, kCldSize, kCldPitch, kCldDens, kCldTex, kCldSpread, kCldFb, kCldRev, kCldMix, kCldFreeze,
     kModBlockStart,                                           // = kModFirst in PluginProcessor.h
-    kArpStrum = kModBlockStart + 62, kArpProb, kScaleType, kScaleRoot, kScaleMask   // appended after Clouds mode
+    kArpStrum = kModBlockStart + 62, kArpProb, kScaleType, kScaleRoot, kScaleMask,   // appended after Clouds mode
+    kSettingChorusNoise = kModBlockStart + 75, kSettingFreeStrum
   };
 
   switch (paramIdx)
@@ -338,6 +339,11 @@ void KR106DSP<T>::SetParam(int paramIdx, double value)
     case kArpGate:      mArp.mGate = 0.1f + 0.9f * static_cast<float>(value); break;
     case kArpRatchet:   mArp.mRatchet = kr106::ratchetFromValue(static_cast<float>(value)); break;
     case kArpChord:     mArp.mChord = value > 0.5; mArp.mCounter = 0; break;
+    case kSettingChorusNoise: mChorus.mNoiseOff = (value < 0.5); break;
+    case kSettingFreeStrum:
+      mFreeStrum = (value > 0.5);
+      if (!mFreeStrum) for (auto& f : mFree) f.active = false;
+      break;
     case kArpStrum:     mArp.mStrum = std::max(0.f, std::min(1.f, static_cast<float>(value))); break;
     case kArpProb:      mArp.mProb  = std::max(0.f, std::min(1.f, static_cast<float>(value))); break;
     case kScaleType:    mScaleType   = kr106::scaleTypeFromValue(static_cast<float>(value)); UpdateScale(); break;

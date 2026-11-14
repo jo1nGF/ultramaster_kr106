@@ -6,6 +6,7 @@
 #include <juce_gui_basics/juce_gui_basics.h>
 #include <functional>
 #include <map>
+#include "KR106PanelBackground.h"
 
 #ifndef KR106_TOUCH
 #define KR106_TOUCH 0
@@ -86,6 +87,8 @@ struct HostRecorder
   std::function<juce::String()> lastName;       // file name of the last take ("" if none)
   std::function<void()> shareLast;              // Android share sheet
   std::function<void()> saveLastAs;             // "save as..." document picker
+  std::function<int()> format;                  // 0 = WAV 24-bit, 1 = Ogg Vorbis 128 kbps
+  std::function<void()> toggleFormat;           // switch between them (not while recording)
 };
 inline HostRecorder& hostRecorder()
 {
@@ -103,6 +106,7 @@ class PanZoom : public juce::MouseListener
 {
 public:
   std::function<bool(juce::Component*)> isBackground;
+  std::function<bool(const juce::MouseEvent&)> isBackgroundEvent;       // optional: decides by the touch point as well
   std::function<juce::Point<float>(juce::Point<float> screenPos)> toLocal;
   std::function<void(juce::Point<float> deltaPx)> onPan;
   std::function<void(float factor, juce::Point<float> focalPx)> onPinch;
@@ -110,7 +114,7 @@ public:
 
   void mouseDown(const juce::MouseEvent& e) override
   {
-    if (!isBackground || !isBackground(e.eventComponent)) return;
+    if (!isBg(e)) return;
     mPts[e.source.getIndex()] = local(e);
   }
   void mouseDrag(const juce::MouseEvent& e) override
@@ -138,10 +142,15 @@ public:
   void mouseUp(const juce::MouseEvent& e) override { mPts.erase(e.source.getIndex()); }
   void mouseDoubleClick(const juce::MouseEvent& e) override
   {
-    if (isBackground && isBackground(e.eventComponent) && onDoubleTap) onDoubleTap(local(e));
+    if (isBg(e) && onDoubleTap) onDoubleTap(local(e));
   }
 
 private:
+  bool isBg(const juce::MouseEvent& e) const
+  {
+    if (isBackgroundEvent) return isBackgroundEvent(e);
+    return isBackground && isBackground(e.eventComponent);
+  }
   juce::Point<float> local(const juce::MouseEvent& e) const
   {
     auto p = e.source.getScreenPosition();

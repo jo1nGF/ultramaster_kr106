@@ -166,16 +166,16 @@ private:
 
 
 // ---- matrix: sources and curated targets (choices are stored as 0..1 slider values) ----
-// Source order: None, LFO 1, LFO 2, LFO 3, Envelope, Seq 1 ... Seq 8, Trk1 CV, Trk2 CV, Out A, Out B.
-// Seq 1-8 are the gate tracks of the Varigate sequencer or, when the Metropolix is selected, its 8 MOD lanes.
-// Trk1 CV / Trk2 CV are the CV lanes of the two Metropolix tracks, Out A / Out B its two assignable outputs.
+// Source order: None, LFO 1-3, Envelope, Gate 1-8 (Varigate gate tracks), Trk1 CV, Trk2 CV, Out A, Out B (Metropolix),
+// Lane 1-8 (Metropolix MOD lanes), Trk3 CV, Trk4 CV. Both sequencers can play at the same time, so each has its own.
 // (Saved states from before LFO 3 existed stored Envelope as index 3: kOldSourceToNew converts them.)
-static constexpr int kNumModSources = 17;
+static constexpr int kNumModSources = 27;
 static constexpr int kSrcNone = 0, kSrcLfo1 = 1, kSrcLfo2 = 2, kSrcLfo3 = 3, kSrcEnv = 4, kSrcGate1 = 5,
-                     kSrcTrkCv1 = 13, kSrcTrkCv2 = 14, kSrcOutA = 15, kSrcOutB = 16;
+                     kSrcTrkCv1 = 13, kSrcTrkCv2 = 14, kSrcOutA = 15, kSrcOutB = 16, kSrcLane1 = 17, kSrcTrkCv3 = 25, kSrcTrkCv4 = 26;
 static constexpr const char* kModSourceNames[kNumModSources] = {
   "None", "LFO 1", "LFO 2", "LFO 3", "Envelope",
-  "Seq 1", "Seq 2", "Seq 3", "Seq 4", "Seq 5", "Seq 6", "Seq 7", "Seq 8", "Trk1 CV", "Trk2 CV", "Out A", "Out B" };
+  "Gate 1", "Gate 2", "Gate 3", "Gate 4", "Gate 5", "Gate 6", "Gate 7", "Gate 8", "Trk1 CV", "Trk2 CV", "Out A", "Out B",
+  "Lane 1", "Lane 2", "Lane 3", "Lane 4", "Lane 5", "Lane 6", "Lane 7", "Lane 8", "Trk3 CV", "Trk4 CV" };
 static inline int modSourceFromValue(float v)
 { return std::max(0, std::min(kNumModSources - 1, static_cast<int>(std::round(v * (kNumModSources - 1))))); }
 static inline float valueFromModSource(int s) { return static_cast<float>(s) / (kNumModSources - 1); }
@@ -183,7 +183,7 @@ static inline float valueFromModSource(int s) { return static_cast<float>(s) / (
 // Targets (the last two, Arp Scale and Arp Root, move the scale quantizer). Besides the synth and effects, every control of the three LFOs and of the modulation
 // envelope can be modulated, and so can portamento. (A modulated Mod-page control takes effect from
 // the next audio block, so one LFO can drive another - or itself - without any trouble.)
-static constexpr int kNumModTargets = 67;
+static constexpr int kNumModTargets = 68;
 static constexpr const char* kModTargetNames[kNumModTargets] = {
   // Filter & amp
   "VCF Freq", "VCF Res", "VCF Env", "VCF LFO", "HPF Freq", "VCA Level",
@@ -203,15 +203,17 @@ static constexpr const char* kModTargetNames[kNumModTargets] = {
   "Clouds Position", "Clouds Size", "Clouds Pitch", "Clouds Density", "Clouds Mix", "Clouds Reverb", "Clouds Decay", "Clouds Tone",
   // Arp & limiter
   "Arp Rate", "Arp Swing", "Arp Gate", "Arp Ratchet", "Arp Strum", "Arp Probability", "Limiter Ceiling",
-  "Arp Scale", "Arp Root"
+  "Arp Scale", "Arp Root",
+  // Performance
+  "Pitch Bend"
 };
-static constexpr int kNumModGroups = 11;
+static constexpr int kNumModGroups = 12;
 static constexpr const char* kModGroupNames[kNumModGroups] = {
   "Filter & amp", "Oscillator & LFO", "Envelope", "Mod LFO 1", "Mod LFO 2", "Mod LFO 3", "Mod envelope",
-  "Tape delay", "Digital delay", "Clouds", "Arp, scale & limiter"
+  "Tape delay", "Digital delay", "Clouds", "Arp, scale & limiter", "Performance"
 };
-static constexpr int kModGroupStart[kNumModGroups] = { 0, 6, 13, 17, 23, 29, 35, 42, 47, 50, 58 };
-static constexpr int kModGroupCount[kNumModGroups] = { 6, 7,  4,  6,  6,  6,  7,  5,  3,  8,  9 };
+static constexpr int kModGroupStart[kNumModGroups] = { 0, 6, 13, 17, 23, 29, 35, 42, 47, 50, 58, 67 };
+static constexpr int kModGroupCount[kNumModGroups] = { 6, 7,  4,  6,  6,  6,  7,  5,  3,  8,  9,  1 };
 static inline int modGroupOf(int t)
 { for (int g = 0; g < kNumModGroups; g++) if (t >= kModGroupStart[g] && t < kModGroupStart[g] + kModGroupCount[g]) return g; return 0; }
 static inline float valueFromModTarget(int t) { return static_cast<float>(t) / (kNumModTargets - 1); }

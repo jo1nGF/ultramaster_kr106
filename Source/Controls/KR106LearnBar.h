@@ -140,3 +140,37 @@ private:
   int mParamIdx = -1, mAssignedCC = -1;
   juce::uint32 mDeadline = 0;
 };
+
+
+// MIDI learn by tapping: with the "CC" button on, this covers the page; a tap on a control starts the learn
+// for it (the control does not move), then the CC you move on your keyboard is assigned. The tab bar stays usable.
+class KR106LearnTapOverlay : public juce::Component, private juce::Timer
+{
+public:
+  std::function<std::vector<juce::Rectangle<int>>()> outlines;     // the learnable controls that are showing
+  std::function<void(juce::Point<int>)> onTap;
+  std::function<bool(juce::Point<int>)> passThrough;               // true: let the touch reach what is underneath
+
+  KR106LearnTapOverlay() { startTimerHz(6); }
+
+  bool hitTest(int x, int y) override { return !(passThrough && passThrough({ x, y })); }
+
+  void paint(juce::Graphics& g) override
+  {
+    g.fillAll(juce::Colour(0x28000000));
+    if (outlines)
+      for (auto& r : outlines())
+      {
+        g.setColour(juce::Colour(0xff00dc00).withAlpha(0.85f));
+        g.drawRoundedRectangle(r.toFloat().expanded(3.f), 4.f, 1.5f);
+      }
+    g.setColour(juce::Colour(0xff00dc00));
+    g.setFont(juce::FontOptions(11.f, juce::Font::bold));
+    g.drawText("MIDI LEARN: tap a control, then move a control on your keyboard", 140, 76, 560, 14, juce::Justification::centred);
+  }
+
+  void mouseUp(const juce::MouseEvent& e) override { if (onTap) onTap(e.getPosition()); }
+
+private:
+  void timerCallback() override { if (isShowing()) repaint(); }
+};
