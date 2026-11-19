@@ -18,6 +18,7 @@
 #include "KR106Scale.h"
 #include "KR106Varigate.h"
 #include "KR106Metropolix.h"
+#include "KR106Fx.h"
 #include "KR106Chorus.h"
 #include "KR106TapeDelay.h"
 #include "KR106DigitalDelay.h"
@@ -808,12 +809,16 @@ public:
     {
       float L = static_cast<float>(outputs[0][s]);
       float R = (nOutputs > 1) ? static_cast<float>(outputs[1][s]) : L;
+      mFxChorus.Process(L, R);               // FX 2: clean chorus and phaser (off = untouched)
+      mFxPhaser.Process(L, R);
       float oL, oR;
       mTapeDelay.Process(L, R, oL, oR);
       float dL, dR;                          // digital delay after the tape delay
       mDigitalDelay.Process(oL, oR, dL, dR);
-      float cL, cR;                          // Clouds, then the master limiter
+      mFxSpring.Process(dL, dR);             // FX 2: spring reverb
+      float cL, cR;                          // Clouds, then the compressor and the master limiter
       mClouds.Process(dL, dR, cL, cR);
+      mFxComp.Process(cL, cR);
       mLimiter.Process(cL, cR);
       outputs[0][s] = static_cast<T>(cL);
       if (nOutputs > 1) outputs[1][s] = static_cast<T>(cR);
@@ -877,6 +882,8 @@ public:
     mTapeDelay.Init(mSampleRate);
     mTapeDelay.Snap();
     mDigitalDelay.Init(mSampleRate);
+    mFxChorus.Init(mSampleRate); mFxPhaser.Init(mSampleRate); mFxSpring.Init(mSampleRate); mFxComp.Init(mSampleRate);
+    UpdateFx();
     mClouds.Init(mSampleRate);
     mLimiter.Init(mSampleRate);
     mFloorNoise.Init(mSampleRate);
@@ -1049,6 +1056,17 @@ public:
 
   kr106::Chorus mChorus;
   kr106::TapeDelay mTapeDelay;
+  // FX 2 page: settings in plugin order (on, rate, depth, mix | on, rate, depth, fb, mix | on, decay, tone, drive, mix |
+  // on, threshold, ratio, attack, release, make-up)
+  kr106::FxChorus mFxChorus; kr106::FxPhaser mFxPhaser; kr106::FxSpring mFxSpring; kr106::FxCompressor mFxComp;
+  float mFxP[20] = { 0.f, 0.3f, 0.5f, 0.5f,   0.f, 0.3f, 0.6f, 0.4f, 0.5f,   0.f, 0.5f, 0.6f, 0.3f, 0.3f,   0.f, 0.6f, 0.3f, 0.2f, 0.4f, 0.3f };
+  void UpdateFx()
+  {
+    mFxChorus.Set(mFxP[0] > 0.5f, mFxP[1], mFxP[2], mFxP[3]);
+    mFxPhaser.Set(mFxP[4] > 0.5f, mFxP[5], mFxP[6], mFxP[7], mFxP[8]);
+    mFxSpring.Set(mFxP[9] > 0.5f, mFxP[10], mFxP[11], mFxP[12], mFxP[13]);
+    mFxComp.Set(mFxP[14] > 0.5f, mFxP[15], mFxP[16], mFxP[17], mFxP[18], mFxP[19]);
+  }
   kr106::DigitalDelay mDigitalDelay;
   kr106::Clouds mClouds;
   kr106::Limiter mLimiter;

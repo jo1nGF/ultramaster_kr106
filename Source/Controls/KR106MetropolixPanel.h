@@ -5,7 +5,7 @@
 //   * Right: PITCH sliders (8 stages, black caps with a red rectangular LED), PULSE COUNT sliders (1-8)
 //     and GATE TYPE sliders (hold / multi / single / rest), and the row of 8 stage buttons with their
 //     function (SLIDE SKIP PITCH GATE RATCH PROB ACCUM CV) and ALT (LOAD SAVE A B CLK MX LIM TYPE) labels.
-//   * Left: the screen and the encoder (drag it, tap it to push), EXIT, TRK 1 / TRK 2 / MOD, RUN, the loopy
+//   * Left: the screen and the encoder (drag it, tap it to push), EXIT, TRK 1 to TRK 4 / MOD, RUN, the loopy
 //     button, RESET, SETUP, BPM, SCALE, ORDER, LEN, DIV, SWING, SLIDE, GATE, ALT and EDIT.
 //
 //   How it is played (the same as the hardware, adapted to touch):
@@ -179,8 +179,8 @@ private:
   static constexpr int kPitchY0 = 22, kPitchY1 = 122, kPulseY0 = 158, kPulseY1 = 212, kGateY0 = 242, kGateY1 = 282;
   static constexpr int kStageCy = 336, kStageR = 12;
   enum Id {
-    kTrk1 = 1, kTrk2, kMod, kRun, kLoopy, kReset, kSetup, kBpm, kScale, kOrder, kLen, kDiv, kSwing, kSlide, kGateLen,
-    kAlt, kEdit, kExit, kClk, kRstJack, kJackA, kJackB, kLed1, kLed2, kEncoder,
+    kTrk1 = 1, kTrk2, kMod, kTrk3, kTrk4, kRun, kLoopy, kReset, kSetup, kBpm, kScale, kOrder, kLen, kDiv, kSwing, kSlide, kGateLen,
+    kAlt, kEdit, kExit, kClk, kRstJack, kJackA, kJackB, kLed1, kLed2, kLed3, kLed4, kEncoder,
     kAux1, kAux2, kAux3, kCtrlB1, kCtrlB2, kCtrlK1, kCtrlK2, kAuxK1, kAuxK2, kAuxK3, kStageBase = 100
   };
   enum Shape { Round, Jack, Encoder, Led, Knob, Small };
@@ -192,7 +192,7 @@ private:
   kr106::MetropolixSeq& mSeq;
   std::vector<Item> mItems;
   int mTrk = 0, mLane = 0, mScreen = kHome, mSub = 0, mEditLane = 0, mEditStage = 0, mBank = 0, mMenuItem = 0, mInfo = 0;
-  int mCtrlSel = 0, mAuxSel = 0, mOutSel = 0, mLoopTrks = 3, mKnobDrag = -1, mKnobY = 0;
+  int mCtrlSel = 0, mAuxSel = 0, mOutSel = 0, mLoopTrks = 15, mKnobDrag = -1, mKnobY = 0;
   float mKnobStart = 0.f;
   bool mMod = false, mEdit = false, mEditPick = false, mAlt = false, mLoopy = false, mMenuEditing = false;
   int mPressed = -1, mSlider = -1, mHeldMask = 0, mLoopFirst = -1;
@@ -213,7 +213,7 @@ private:
     mItems.clear();
     addItem(kJackA, Jack, 24, 18, 26, "A");   addItem(kJackB, Jack, 62, 18, 26, "B");
     addItem(kClk, Jack, 100, 18, 26, "CLK");  addItem(kRstJack, Jack, 138, 18, 26, "RESET");
-    addItem(kLed1, Led, 196, 18, 14, "GATE 1"); addItem(kLed2, Led, 240, 18, 14, "GATE 2");
+    for (int t = 0; t < 4; t++) addItem(kLed1 + t, Led, 178 + t * 40, 18, 14, "GATE " + juce::String(t + 1));
     // AUX inputs X, Y, Z with their attenuverters
     const char* ax[3] = { "X", "Y", "Z" };
     for (int i = 0; i < 3; i++)
@@ -223,7 +223,8 @@ private:
     }
     addItem(kEncoder, Encoder, 392, 96, 64, "");
     addItem(kExit, Round, 424, 144, 24, "EXIT");
-    addItem(kTrk1, Round, 150, 180, 28, "TRK 1"); addItem(kTrk2, Round, 205, 180, 28, "TRK 2"); addItem(kMod, Round, 260, 180, 28, "MOD");
+    addItem(kTrk1, Round, 146, 180, 26, "TRK 1"); addItem(kTrk2, Round, 188, 180, 26, "TRK 2");
+    addItem(kTrk3, Round, 230, 180, 26, "TRK 3"); addItem(kTrk4, Round, 272, 180, 26, "TRK 4"); addItem(kMod, Round, 314, 180, 26, "MOD");
     // CTRL knobs and their black buttons
     addItem(kCtrlK1, Knob, 34, 202, 40, "CTRL 1");   addItem(kCtrlK2, Knob, 88, 202, 40, "CTRL 2");
     addItem(kCtrlB1, Small, 56, 180, 18, "");         addItem(kCtrlB2, Small, 110, 180, 18, "");
@@ -357,7 +358,9 @@ private:
   {
     using namespace kr106;
     const MxPattern& P = mSeq.mPat;
-    const int posA = mSeq.mPos[mTrk].load(std::memory_order_relaxed), posB = mSeq.mPos[1 - mTrk].load(std::memory_order_relaxed);
+    const int posA = mSeq.mPos[mTrk].load(std::memory_order_relaxed);
+    int posB = -1;
+    for (int t = 0; t < kMxTracks; t++) if (t != mTrk && mSeq.mPos[t].load(std::memory_order_relaxed) >= 0) posB = mSeq.mPos[t].load(std::memory_order_relaxed);
     g.setFont(juce::FontOptions(10.f, juce::Font::bold));
     g.setColour(juce::Colour(0xffe8e8ea));
     g.drawText(mMod ? "MOD LANE " + juce::String(mLane + 1) : juce::String("PITCH"), kSlX0, 3, 870 - kSlX0, 13, juce::Justification::centred);
@@ -375,7 +378,9 @@ private:
       g.fillRoundedRectangle(static_cast<float>(cx - 4), static_cast<float>(kPulseY0 - 6), 8.f, static_cast<float>(kPulseY1 - kPulseY0 + 12), 3.f);
       g.fillRoundedRectangle(static_cast<float>(cx - 4), static_cast<float>(kGateY0 - 6), 8.f, static_cast<float>(kGateY1 - kGateY0 + 12), 3.f);
 
-      const bool playing = (i == posA), other = (i == posB);
+      bool other = (i == posB);
+      for (int t = 0; t < kMxTracks; t++) if (t != mTrk && mSeq.mPos[t].load(std::memory_order_relaxed) == i) other = true;
+      const bool playing = (i == posA);
       const float lvl = playing ? 1.f : (other ? 0.45f : 0.1f);
 
       // pitch (or MOD lane value)
@@ -548,7 +553,7 @@ private:
         const MxAssign& a = mSeq.mPat.ctrl[mCtrlSel];
         v.push_back("CTRL " + juce::String(mCtrlSel + 1) + " SETTINGS");
         v.push_back(mark(0) + kMxDests[std::min<int>(kMxNumDest - 1, a.dest.get())].name);
-        v.push_back(mark(1) + "Assign  " + kMxAssignNames[juce::jlimit(1, 3, static_cast<int>(a.mask.get())) - 1]);
+        v.push_back(mark(1) + "Assign  " + mxMaskName(a.mask.get()).c_str());
         v.push_back("Knob  " + juce::String(juce::roundToInt(mSeq.mCtrl[mCtrlSel].load() * 100.f)) + " %");
         break;
       }
@@ -559,18 +564,18 @@ private:
         v.push_back(juce::String("AUX ") + nm[mAuxSel] + " SETTINGS");
         v.push_back(mark(0) + "Source  " + kMxAuxSources[std::min<int>(4, mSeq.mPat.auxSrc[mAuxSel].get())]);
         v.push_back(mark(1) + kMxDests[std::min<int>(kMxNumDest - 1, a.dest.get())].name);
-        v.push_back(mark(2) + "Assign  " + kMxAssignNames[juce::jlimit(1, 3, static_cast<int>(a.mask.get())) - 1]);
+        v.push_back(mark(2) + "Assign  " + mxMaskName(a.mask.get()).c_str());
         v.push_back("Atten  " + juce::String(juce::roundToInt(s8(mSeq.mPat.auxAmt[mAuxSel]) / 127.f * 100.f)) + " %");
         break;
       }
       case kScModAssign:
         v.push_back("MOD " + juce::String(mLane + 1) + " ASSIGN");
         v.push_back(mark(0) + kMxDests[std::min<int>(kMxNumDest - 1, L.dest.get())].name);
-        v.push_back(mark(1) + "Assign  " + kMxAssignNames[juce::jlimit(1, 3, static_cast<int>(L.mask.get())) - 1]);
+        v.push_back(mark(1) + "Assign  " + mxMaskName(L.mask.get()).c_str());
         break;
       case kScOut:
         v.push_back(mOutSel == 0 ? "OUT A" : "OUT B");
-        v.push_back(kMxOutNames[std::min<int>(14, mOutSel == 0 ? mSeq.mPat.outA.get() : mSeq.mPat.outB.get())]);
+        v.push_back(kMxOutNames[std::min<int>(kMxNumOuts - 1, mOutSel == 0 ? mSeq.mPat.outA.get() : mSeq.mPat.outB.get())]);
         v.push_back("(a source of the modulation matrix)");
         break;
       case kScType:
@@ -580,7 +585,7 @@ private:
       case kScLoopy:
         v.push_back("LOOPY");
         v.push_back(mark(0) + "Pulses  " + (mSeq.mLoopPulses.load() ? juce::String(mSeq.mLoopPulses.load()) : juce::String("Auto")));
-        v.push_back(mark(1) + "Tracks  " + kMxAssignNames[juce::jlimit(1, 3, mLoopTrks) - 1]);
+        v.push_back(mark(1) + "Tracks  " + mxMaskName(mLoopTrks).c_str());
         break;
       case kScInfo:
         v.push_back("ALT");
@@ -682,7 +687,7 @@ private:
     switch (mScreen)
     {
       case kHome:
-        if (mMod) mLane = juce::jlimit(0, 7, mLane + d); else mTrk = juce::jlimit(0, 1, mTrk + d);
+        if (mMod) mLane = juce::jlimit(0, 7, mLane + d); else mTrk = juce::jlimit(0, kMxTracks - 1, mTrk + d);
         break;
       case kScOrder: if (mMod) bump(L.order, d, 0, kMxOrders - 1); else bump(T.order, d, 0, kMxOrders - 1); break;
       case kScLen:
@@ -710,20 +715,20 @@ private:
       case kScCtrl:
       {
         MxAssign& a = mSeq.mPat.ctrl[mCtrlSel];
-        if (mSub == 0) bump(a.dest, d, 0, kMxNumDest - 1); else bump(a.mask, d, 1, 3);
+        if (mSub == 0) bump(a.dest, d, 0, kMxNumDest - 1); else a.mask.set(mxStepMask(a.mask.get(), d));
         break;
       }
       case kScAux:
       {
         MxAssign& a = mSeq.mPat.aux[mAuxSel];
-        if (mSub == 0) bump(mSeq.mPat.auxSrc[mAuxSel], d, 0, 4); else if (mSub == 1) bump(a.dest, d, 0, kMxNumDest - 1); else bump(a.mask, d, 1, 3);
+        if (mSub == 0) bump(mSeq.mPat.auxSrc[mAuxSel], d, 0, 4); else if (mSub == 1) bump(a.dest, d, 0, kMxNumDest - 1); else a.mask.set(mxStepMask(a.mask.get(), d));
         break;
       }
-      case kScModAssign: if (mSub == 0) bump(L.dest, d, 0, kMxNumDest - 1); else bump(L.mask, d, 1, 3); break;
-      case kScOut: bump(mOutSel == 0 ? mSeq.mPat.outA : mSeq.mPat.outB, d, 0, 14); break;
+      case kScModAssign: if (mSub == 0) bump(L.dest, d, 0, kMxNumDest - 1); else L.mask.set(mxStepMask(L.mask.get(), d)); break;
+      case kScOut: bump(mOutSel == 0 ? mSeq.mPat.outA : mSeq.mPat.outB, d, 0, kMxNumOuts - 1); break;
       case kScType: T.cvType.set(d > 0 ? 1 : 0); break;
       case kScLoopy:
-        if (mSub == 0) mSeq.mLoopPulses.store(juce::jlimit(0, 64, mSeq.mLoopPulses.load() + d)); else mLoopTrks = juce::jlimit(1, 3, mLoopTrks + d);
+        if (mSub == 0) mSeq.mLoopPulses.store(juce::jlimit(0, 64, mSeq.mLoopPulses.load() + d)); else mLoopTrks = mxStepMask(mLoopTrks, d);
         break;
       default: break;
     }
@@ -916,10 +921,11 @@ private:
     switch (id)
     {
       case kTrk1: return !mMod && mTrk == 0;   case kTrk2: return !mMod && mTrk == 1;   case kMod: return mMod;
+      case kTrk3: return !mMod && mTrk == 2;   case kTrk4: return !mMod && mTrk == 3;
       case kRun: return mSeq.mRun.load();      case kLoopy: return mLoopy;
       case kAlt: return mAlt;                  case kEdit: return mEdit;
       case kClk: return mSeq.mSync.load();
-      case kLed1: return mSeq.mHigh[0].load() != 0;   case kLed2: return mSeq.mHigh[1].load() != 0;
+      case kLed1: case kLed2: case kLed3: case kLed4: return mSeq.mHigh[id - kLed1].load() != 0;
       case kOrder: return mScreen == kScOrder; case kLen: return mScreen == kScLen;     case kDiv: return mScreen == kScDiv;
       case kSwing: return mScreen == kScSwing; case kSlide: return mScreen == kScSlide; case kGateLen: return mScreen == kScGate;
       case kBpm: return mScreen == kScBpm;     case kScale: return mScreen == kScScale; case kSetup: return mScreen == kScMenu;
@@ -941,6 +947,8 @@ private:
     {
       case kTrk1: mMod = false; mTrk = 0; break;
       case kTrk2: mMod = false; mTrk = 1; break;
+      case kTrk3: mMod = false; mTrk = 2; break;
+      case kTrk4: mMod = false; mTrk = 3; break;
       case kMod:                                                          // MOD again: the assignment screen of the lane
         if (mMod && (mScreen == kHome || mScreen == kScModAssign)) mScreen = (mScreen == kHome) ? kScModAssign : kHome;
         else { mMod = true; if (mScreen != kScOrder && mScreen != kScLen && mScreen != kScDiv) mScreen = kHome; }

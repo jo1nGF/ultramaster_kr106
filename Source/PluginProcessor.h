@@ -51,7 +51,7 @@ enum EParams
   // Clouds (granular)
   kCldPos, kCldSize, kCldPitch, kCldDens, kCldTex, kCldSpread, kCldFb, kCldRev, kCldMix, kCldFreeze,
   kModFirst,   // modulation block: LFOs, envelope, 12-slot matrix (global, not in presets)
-  kNumParams = kModFirst + 77
+  kNumParams = kModFirst + 97
 };
 
 // Offsets into the modulation block (see KR106ModEngine.h for what each control does)
@@ -81,6 +81,12 @@ constexpr int kLfo3Wave = kModFirst + 67, kLfo3Rate = kModFirst + 68, kLfo3Amt =
 // Settings added later (live: not part of presets)
 constexpr int kSettingChorusNoise = kModFirst + 75;   // bool: the noise of the chorus (off = a clean chorus)
 constexpr int kSettingFreeStrum = kModFirst + 76;     // bool: strum and ratchet also work without the arp (MIDI chords)
+// FX 2 page: clean chorus, phaser, spring reverb, compressor (live: not part of presets)
+constexpr int kFxChOn = kModFirst + 77, kFxChRate = kModFirst + 78, kFxChDepth = kModFirst + 79, kFxChMix = kModFirst + 80;
+constexpr int kFxPhOn = kModFirst + 81, kFxPhRate = kModFirst + 82, kFxPhDepth = kModFirst + 83, kFxPhFb = kModFirst + 84, kFxPhMix = kModFirst + 85;
+constexpr int kFxSpOn = kModFirst + 86, kFxSpDecay = kModFirst + 87, kFxSpTone = kModFirst + 88, kFxSpDrive = kModFirst + 89, kFxSpMix = kModFirst + 90;
+constexpr int kFxCmpOn = kModFirst + 91, kFxCmpThr = kModFirst + 92, kFxCmpRatio = kModFirst + 93, kFxCmpAtk = kModFirst + 94,
+              kFxCmpRel = kModFirst + 95, kFxCmpMakeup = kModFirst + 96;
 constexpr int kNumModLfos = 3;
 constexpr int kModFormat = 7;    // version of the matrix Source / Target encoding written to the state
 

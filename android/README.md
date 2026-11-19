@@ -244,8 +244,9 @@ da sua versão.
 ## Aba Seq: sequenciador no estilo Varigate 8+
 
 Uma quarta aba, **Seq**, com dois sequenciadores de passos que se alternam pelo seletor
-**VARIGATE | METROPOLIX** no canto inferior esquerdo da aba (só o escolhido toca; ao trocar, o outro para e
-suas notas são soltas). A escolha é salva com o estado. Esta seção descreve o Varigate; o Metropolix está
+**VARIGATE | METROPOLIX** no canto inferior esquerdo da aba. O seletor só escolhe qual dos dois você vê:
+**os dois sequenciadores tocam ao mesmo tempo** (cada um tem o seu RUN, o seu tempo e o seu SYNC). A escolha é
+salva com o estado. Esta seção descreve o Varigate; o Metropolix está
 na seção seguinte.
 
 O Varigate, no estilo do painel do Malekko Varigate 8+:
@@ -285,7 +286,7 @@ O Varigate, no estilo do painel do Malekko Varigate 8+:
 - **SONG** toca em sequência a lista de presets do banco (o próximo entra quando a trilha de ciclo mais
   longo termina). **S.PRG** + botões de trilha (1 a 10) monta a lista, e **CLEAR** com S.PRG ligado
   esvazia.
-- **Modulação:** os 8 gates viram fontes na matriz (**Seq 1 a Seq 8**).
+- **Modulação:** os 8 gates viram as fontes **Gate 1 a Gate 8** da matriz.
 - Tudo é salvo no estado do plugin (padrão atual, 100 presets, songs, tempo e SYNC).
 
 - **Botões pequenos** (canto inferior esquerdo): **LINK** (liga a CV selecionada a um gate), **ROT<** e
@@ -333,8 +334,8 @@ com o painel prateado do original.
   um botão de stage toca aquele stage (stage player).
 - **MOD:** os sliders passam a editar as **8 lanes MOD** (a lane se escolhe com o encoder): valor, rampa e gate.
   ORDER, LEN e DIV editam a lane; um toque no encoder na tela inicial troca o tipo (bipolar, unipolar, gate).
-- **Modulação:** as 8 lanes MOD saem como as fontes **Seq 1 a Seq 8** na matriz, e as lanes de CV das trilhas como
-  **Trk1 CV** e **Trk2 CV**. O slide do stage que toca abre o Porta (o modo Porta precisa estar ligado).
+- **Modulação:** as 8 lanes MOD saem como as fontes **Lane 1 a Lane 8** na matriz, e as lanes de CV das trilhas como
+  **Trk1 CV a Trk4 CV**. O slide do stage que toca abre o Porta (o modo Porta precisa estar ligado).
 - Tudo é salvo no estado do plugin (padrão atual, 64 presets, tempo e SYNC).
 
 - **CTRL 1 e CTRL 2:** o botão preto ao lado de cada knob abre as configurações (parâmetro, trilhas TRK 1, TRK 2
@@ -344,7 +345,7 @@ com o painel prateado do original.
   Reset, Skip Invert, Slide, Accumulate e Accum Reset (os marcados "gate" disparam acima de 30%).
 - **AUX X, Y, Z:** toque no jack para escolher a fonte (LFO 1, LFO 2, LFO 3 ou o envelope do plugin), o parâmetro
   e as trilhas. O knob ao lado é o atenuador/inversor (12 horas = zero). Eles somam ao valor do parâmetro.
-- **Lanes MOD:** ficam como fontes na matriz (Seq 1 a Seq 8) e também podem controlar os mesmos parâmetros de
+- **Lanes MOD:** ficam como fontes na matriz (Lane 1 a Lane 8) e também podem controlar os mesmos parâmetros de
   cima: no modo MOD, toque em MOD de novo (ou EDIT + botão de stage) para abrir a tela de atribuição da lane.
 - **OUT A e OUT B:** toque nos jacks A e B (ou ALT + A, ALT + B) para escolher o que cada saída dá: Trk 1 ou 2
   Pitch, Trk 1 ou 2 Gate, Trk 1 ou 2 CV, ou uma das lanes MOD. Elas viram as fontes **Out A** e **Out B** na matriz.
@@ -354,3 +355,44 @@ com o painel prateado do original.
 Limitações: não há saídas físicas, então CLK (jack) só liga o sync, o LED CLK OUT é do Varigate, e as funções
 ALT + CLK e ALT + MX (mixer) são apenas informativas; velocidade não é um destino; o stage player e o loopy
 não gravam. Use a matriz de modulação para levar qualquer fonte ao resto do sintetizador.
+
+
+## Novidades (versão 11)
+
+- **Gravador em segundo plano:** o take continua gravando quando o app é minimizado; ele só é fechado quando você
+  para ou fecha o app. O botão no tile do gravador (FX) escolhe entre **WAV 24-bit** e **OGG 128 kbps** (o arquivo
+  mais leve, cerca de 10 vezes menor). MP3 não foi possível: o JUCE não traz um codificador MP3 e o Android não tem
+  um; o Ogg Vorbis a 128 kbps toca em qualquer celular e tem a mesma qualidade. A lista de gravações mostra os dois
+  formatos. (Para a gravação não ser interrompida pelo Android por muito tempo em segundo plano, o app precisa de
+  um serviço em primeiro plano, que é uma opção do Projucer.)
+- **MIDI learn por toque:** o botão **CC** (barra de cima, abaixo do Keys) liga o modo de mapear: os controles
+  aparecem contornados em verde e **um toque** num controle já o seleciona; depois mova o controle do teclado. As
+  abas continuam funcionando. Toque em CC de novo para sair. O segurar continua funcionando.
+- **Teclado:** o botão **Hold** está no cabeçalho do teclado. Deslizar **de baixo para cima** na borda inferior da
+  tela (numa área vazia) abre o teclado.
+- **Zoom no Seq:** pinça e arraste nas partes vazias dos painéis dos sequenciadores (sliders e botões continuam
+  com seus toques); toque duplo numa área vazia alterna o zoom.
+- **Metropolix:** os faders agora **deslizam**: arraste o dedo para o lado para pintar os faders vizinhos da mesma
+  fileira. Há **4 trilhas** (TRK 1 a TRK 4; a 3 e a 4 começam mudas), e as atribuições escolhem uma ou várias
+  trilhas (TRK 1, TRK 2, TRK 3, TRK 4, 1+2, 3+4 ou todas). OUT A e OUT B também podem dar as trilhas 3 e 4.
+  Estados salvos com duas trilhas carregam normalmente.
+- **Os dois sequenciadores juntos:** fontes novas na matriz: **Gate 1-8** (Varigate), **Lane 1-8**, **Trk1 CV a
+  Trk4 CV**, **Out A** e **Out B** (Metropolix). A lista de fontes passa a ter duas colunas.
+- **Pitch Bend modulável:** novo destino **Pitch Bend** (grupo Performance) na matriz.
+- **Strum e Ratchet sem o arp:** em Configurações, **Strum/Ratchet w/o Arp**. Ligado, as notas MIDI que chegam
+  juntas (um acorde, dentro de 45 ms) são reconhecidas e tocadas uma depois da outra, com o atraso do parâmetro
+  **Strum** (0 a 80 ms por nota). O **Ratchet** repete cada nota 2 a 4 vezes dentro de um passo do arp (a velocidade do
+  arp define o tempo). Se você solta uma tecla antes da vez dela, ela não toca.
+- **Ruído do chorus:** em Configurações, **Chorus Noise** desliga o ruído do chorus do Juno (chiado, vazamento,
+  cliques e ripple).
+- **FX 2:** toque no tab **FX** de novo para abrir a segunda página de efeitos (o tab passa a dizer "FX 2"):
+  **Chorus** limpo estéreo (Rate, Depth, Mix), **Phaser** de 6 estágios (Rate, Depth, Fdbk, Mix), **Spring Reverb**
+  (Decay, Tone, Drive, Mix) e **Compressor** (Thresh, Ratio, Attack, Release, Makeup, com medidor de redução), que
+  fica antes do limiter. Cada um tem seu botão On e passa o som intacto quando desligado.
+- **Menus de estados e gravações:** a tela de Estados agora tem colunas com títulos (Estado atual, Estado inicial,
+  Backup, Gravações), e as listas de estados e de gravações são tabelas: o nome à esquerda e as opções (Share, Save
+  as, Delete) alinhadas à direita; Importar e Voltar ficam no topo, à direita.
+
+Testes: `tests/run.sh` compila e roda, com detectores de erros de memória, os motores dos sequenciadores, o DSP
+(strum/ratchet sem o arp, quantizador com Hold, FX 2), os quatro efeitos e os painéis dos sequenciadores (com um
+JUCE de mentira que só serve para exercitá-los).

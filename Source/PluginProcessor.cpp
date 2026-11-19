@@ -604,6 +604,35 @@ KR106AudioProcessor::KR106AudioProcessor()
   addBool(kSettingChorusNoise, "Chorus Noise", true);
   addBool(kSettingFreeStrum, "Strum/Ratchet without Arp", false);
 
+  // FX 2 page
+  SFV fmtHz  = [](float v, int) -> juce::String { return juce::String(0.1f * std::pow(50.f, v), 2) + " Hz"; };
+  SFV fmtPhHz = [](float v, int) -> juce::String { return juce::String(0.05f * std::pow(160.f, v), 2) + " Hz"; };
+  SFV fmtThr = [](float v, int) -> juce::String { return juce::String(-40.f * (1.f - v), 1) + " dB"; };
+  SFV fmtRatio = [](float v, int) -> juce::String { return juce::String(1.5f * std::pow(13.3f, v), 1) + ":1"; };
+  SFV fmtAtk = [](float v, int) -> juce::String { return juce::String(0.5f * std::pow(160.f, v), 1) + " ms"; };
+  SFV fmtRel = [](float v, int) -> juce::String { return juce::String(20.f * std::pow(45.f, v), 0) + " ms"; };
+  SFV fmtMake = [](float v, int) -> juce::String { return juce::String(24.f * v, 1) + " dB"; };
+  addBool(kFxChOn, "Chorus On", false);
+  addSlider(kFxChRate, "Chorus Rate", 0.3f, 0.f, 1.f, fmtHz);
+  addSlider(kFxChDepth, "Chorus Depth", 0.5f, 0.f, 1.f, fmtPct, parsePct);
+  addSlider(kFxChMix, "Chorus Mix", 0.5f, 0.f, 1.f, fmtPct, parsePct);
+  addBool(kFxPhOn, "Phaser On", false);
+  addSlider(kFxPhRate, "Phaser Rate", 0.3f, 0.f, 1.f, fmtPhHz);
+  addSlider(kFxPhDepth, "Phaser Depth", 0.6f, 0.f, 1.f, fmtPct, parsePct);
+  addSlider(kFxPhFb, "Phaser Feedback", 0.4f, 0.f, 1.f, fmtPct, parsePct);
+  addSlider(kFxPhMix, "Phaser Mix", 0.5f, 0.f, 1.f, fmtPct, parsePct);
+  addBool(kFxSpOn, "Spring On", false);
+  addSlider(kFxSpDecay, "Spring Decay", 0.5f, 0.f, 1.f, fmtPct, parsePct);
+  addSlider(kFxSpTone, "Spring Tone", 0.6f, 0.f, 1.f, fmtPct, parsePct);
+  addSlider(kFxSpDrive, "Spring Drive", 0.3f, 0.f, 1.f, fmtPct, parsePct);
+  addSlider(kFxSpMix, "Spring Mix", 0.3f, 0.f, 1.f, fmtPct, parsePct);
+  addBool(kFxCmpOn, "Compressor On", false);
+  addSlider(kFxCmpThr, "Comp Threshold", 0.6f, 0.f, 1.f, fmtThr);
+  addSlider(kFxCmpRatio, "Comp Ratio", 0.3f, 0.f, 1.f, fmtRatio);
+  addSlider(kFxCmpAtk, "Comp Attack", 0.2f, 0.f, 1.f, fmtAtk);
+  addSlider(kFxCmpRel, "Comp Release", 0.4f, 0.f, 1.f, fmtRel);
+  addSlider(kFxCmpMakeup, "Comp Makeup", 0.3f, 0.f, 1.f, fmtMake);
+
   addSlider(kScaleType, "Scale Type", 0.f, 0.f, 1.f, fmtScaleType);
   addSlider(kScaleRoot, "Scale Root", 0.f, 0.f, 1.f, fmtScaleRoot);
   addSlider(kScaleMask, "Scale Custom Notes", kr106::valueFromCustomMask(0x0AB5), 0.f, 1.f, fmtScaleMask);   // default: C major

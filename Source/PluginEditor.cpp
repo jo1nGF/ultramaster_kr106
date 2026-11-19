@@ -177,6 +177,7 @@ KR106Editor::KR106Editor(KR106AudioProcessor& p)
     // page tabs: Synth | FX
     mPageTabs = add(new KR106TouchTabs(juce::StringArray { "Synth", "FX", "Mod", "Seq" }, [this](int i) { setPage(i); }),
                     344, 19, 130, 28);
+    mPageTabs->onRetap = [this](int i) { if (i == 1) setPage(mPage == 1 ? 4 : 1); };       // FX <-> FX 2
 
     auto* tune = knob(kTuning, 490, 29, "Tune", 1.55f);
     tune->setSnapCenter(true); tune->setGearing(205.f);
@@ -554,6 +555,50 @@ KR106Editor::KR106Editor(KR106AudioProcessor& p)
         add(new KR106SeqPage(p), 0, kRowA, kBaseWidth, kBaseHeight - kRowA);
         for (int i = firstSeqChild; i < mContent.getNumChildComponents(); i++)
             mPageCtrls[3].push_back(mContent.getChildComponent(i));
+    }
+
+    // ------------------------------------------------------------------
+    // PAGE: FX 2 - clean chorus, phaser, spring reverb and compressor (the FX tab opens it when tapped again)
+    // ------------------------------------------------------------------
+    {
+        curPage = 4;
+        const int firstFx2Child = mContent.getNumChildComponents();
+        const int wT[4] = { 140, 180, 180, 220 };
+        const int gapT = (854 - (wT[0] + wT[1] + wT[2] + wT[3])) / 3;
+        int xT[4]; xT[0] = 8;
+        for (int i = 1; i < 4; i++) xT[i] = xT[i - 1] + wT[i - 1] + gapT;
+        const int ty = kRowA, cy = ty + 66;
+        auto on = [&](int idx, int x0, int w) {
+            auto* t = new KR106TouchToggle("On", param(idx));
+            add(t, x0 + w - 46, ty + 2, 42, 16);
+            mLearnableParams.push_back(idx); mLearnableControls.push_back({ idx, t });
+        };
+        tile("Chorus", xT[0], ty, wT[0], true);   on(kFxChOn, xT[0], wT[0]);
+        knob(kFxChRate,  xT[0] + 28, cy, "Rate",  1.75f);
+        knob(kFxChDepth, xT[0] + 70, cy, "Depth", 1.75f);
+        knob(kFxChMix,   xT[0] + 112, cy, "Mix",  1.75f);
+        tile("Phaser", xT[1], ty, wT[1], true);   on(kFxPhOn, xT[1], wT[1]);
+        knob(kFxPhRate,  xT[1] + 26,  cy, "Rate",  1.75f);
+        knob(kFxPhDepth, xT[1] + 66,  cy, "Depth", 1.75f);
+        knob(kFxPhFb,    xT[1] + 106, cy, "Fdbk",  1.75f);
+        knob(kFxPhMix,   xT[1] + 146, cy, "Mix",   1.75f);
+        tile("Spring Reverb", xT[2], ty, wT[2], true);   on(kFxSpOn, xT[2], wT[2]);
+        knob(kFxSpDecay, xT[2] + 26,  cy, "Decay", 1.75f);
+        knob(kFxSpTone,  xT[2] + 66,  cy, "Tone",  1.75f);
+        knob(kFxSpDrive, xT[2] + 106, cy, "Drive", 1.75f);
+        knob(kFxSpMix,   xT[2] + 146, cy, "Mix",   1.75f);
+        tile("Compressor", xT[3], ty, wT[3], true); on(kFxCmpOn, xT[3], wT[3]);
+        knob(kFxCmpThr,    xT[3] + 24,  cy, "Thresh", 1.55f);
+        knob(kFxCmpRatio,  xT[3] + 64,  cy, "Ratio",  1.55f);
+        knob(kFxCmpAtk,    xT[3] + 104, cy, "Attack", 1.55f);
+        knob(kFxCmpRel,    xT[3] + 144, cy, "Release", 1.55f);
+        knob(kFxCmpMakeup, xT[3] + 184, cy, "Makeup", 1.55f);
+        add(new KR106TouchMeter("GR",
+            [this]() { return juce::jlimit(0.f, 1.f, -mProcessor.mDSP.mFxComp.GetGainReductionDb() / 18.f); },
+            juce::Colour(0xffff9a2a)), xT[3] + 8, ty + 122, wT[3] - 16, 22);
+        const int lastFx2Child = mContent.getNumChildComponents();
+        for (int i = firstFx2Child; i < lastFx2Child; i++) mPageCtrls[4].push_back(mContent.getChildComponent(i));
+        curPage = 0;
     }
     curPage = 0;
     setPage(0);
@@ -1492,8 +1537,13 @@ void KR106Editor::paintTouchBackground(juce::Graphics& g)
 
 void KR106Editor::setPage(int page)
 {
-    mPage = juce::jlimit(0, 3, page);
-    for (int g = 0; g < 4; g++)
+    mPage = juce::jlimit(0, 4, page);
+    if (mPageTabs != nullptr)
+    {
+        mPageTabs->setSelected(mPage == 4 ? 1 : mPage);
+        mPageTabs->setName(1, mPage == 4 ? "FX 2" : "FX");
+    }
+    for (int g = 0; g < 5; g++)
         for (auto* ctrl : mPageCtrls[g]) ctrl->setVisible(g == mPage);
     if (mPageTabs) mPageTabs->setSelected(mPage);
     repaint();

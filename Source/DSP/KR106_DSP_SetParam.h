@@ -35,9 +35,17 @@ void KR106DSP<T>::SetParam(int paramIdx, double value)
     kCldPos, kCldSize, kCldPitch, kCldDens, kCldTex, kCldSpread, kCldFb, kCldRev, kCldMix, kCldFreeze,
     kModBlockStart,                                           // = kModFirst in PluginProcessor.h
     kArpStrum = kModBlockStart + 62, kArpProb, kScaleType, kScaleRoot, kScaleMask,   // appended after Clouds mode
-    kSettingChorusNoise = kModBlockStart + 75, kSettingFreeStrum
+    kSettingChorusNoise = kModBlockStart + 75, kSettingFreeStrum,
+    kFxChOn = kModBlockStart + 77, kFxChRate, kFxChDepth, kFxChMix, kFxPhOn, kFxPhRate, kFxPhDepth, kFxPhFb, kFxPhMix,
+    kFxSpOn, kFxSpDecay, kFxSpTone, kFxSpDrive, kFxSpMix, kFxCmpOn, kFxCmpThr, kFxCmpRatio, kFxCmpAtk, kFxCmpRel, kFxCmpMakeup
   };
 
+  if (paramIdx >= kFxChOn && paramIdx <= kFxCmpMakeup)       // FX 2 page
+  {
+    mFxP[paramIdx - kFxChOn] = static_cast<float>(value);
+    UpdateFx();
+    return;
+  }
   switch (paramIdx)
   {
     case kDcoLfo: {

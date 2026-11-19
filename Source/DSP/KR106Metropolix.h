@@ -4,7 +4,7 @@
 //
 //   * 8 stages with three panel-wide controls: PITCH sliders, PULSE COUNT (1-8 clock pulses per stage)
 //     and GATE TYPE (hold / multi / single / rest).
-//   * 2 note tracks (TRK 1, TRK 2) read the same stages in their own way: each has its own play ORDER
+//   * 4 note tracks (TRK 1 to TRK 4) read the same stages in their own way: each has its own play ORDER
 //     (20 orders, forward / reverse), length (stages, offset, pulses), clock divider, pulse-count divider,
 //     swing, slide, gate length, transposition, slider range, gate stretching, ratchet mode ...
 //   * Per stage and per track: SLIDE, SKIP, PITCH override, GATE override, RATCHets (1-8), PROBability
@@ -21,13 +21,14 @@
 #include <atomic>
 #include <cmath>
 #include <cstdint>
+#include <string>
 #include <vector>
 #include "KR106Varigate.h"      // A8
 #include "KR106Scale.h"
 
 namespace kr106 {
 
-static constexpr int kMxTracks = 2, kMxStages = 8, kMxLanes = 8, kMxPresets = 64, kMxOrders = 20;
+static constexpr int kMxTracks = 4, kMxStages = 8, kMxLanes = 8, kMxPresets = 64, kMxOrders = 20;
 
 static constexpr const char* kMxOrderNames[kMxOrders] = {
   "Linear", "Ping Pong", "Pendulum", "Odd/Even", "Jump by 2", "Jump by 3", "Jump by 4", "Jump by 5", "Hopscotch",
@@ -56,10 +57,25 @@ static constexpr MxDestInfo kMxDests[kMxNumDest] = {
   { "Slide Amount", 0, 0, 100 },    { "Slider Range", 0, 1, 4 },       { "Stages Len", 0, 1, 8 },       { "Stage Offset", 0, 0, 7 },
   { "Swing", 0, 50, 78 },           { "Mute (gate)", 2, 0, 0 },        { "Reset (gate)", 2, 0, 0 },     { "Skip Invert (gate)", 2, 0, 0 },
   { "Slide (gate)", 2, 0, 0 },      { "Accumulate (gate)", 2, 0, 0 },  { "Accum Reset (gate)", 2, 0, 0 } };
-static constexpr const char* kMxAssignNames[3] = { "TRK 1", "TRK 2", "TRK 1+2" };       // mask 1, 2, 3
+// Which tracks an assignment reaches: a mask with one bit per track. The screens step through these.
+static constexpr int kMxMaskList[7] = { 1, 2, 4, 8, 3, 12, 15 };
+static inline std::string mxMaskName(int mask)
+{
+  if ((mask & 15) == 15) return "ALL TRACKS";
+  std::string s; int n = 0;
+  for (int t = 0; t < 4; t++) if (mask & (1 << t)) { s += (n++ ? "+" : "") + std::to_string(t + 1); }
+  return n == 0 ? std::string("NONE") : "TRK " + s;
+}
+static inline int mxStepMask(int mask, int d)                    // next / previous mask of the list
+{
+  int i = 0; for (int k = 0; k < 7; k++) if (kMxMaskList[k] == (mask & 15)) i = k;
+  return kMxMaskList[std::max(0, std::min(6, i + d))];
+}
 static constexpr const char* kMxAuxSources[5] = { "None", "LFO 1", "LFO 2", "LFO 3", "Envelope" };
-static constexpr const char* kMxOutNames[15] = { "None", "Trk 1 Pitch", "Trk 2 Pitch", "Trk 1 Gate", "Trk 2 Gate", "Trk 1 CV", "Trk 2 CV",
-  "MOD 1", "MOD 2", "MOD 3", "MOD 4", "MOD 5", "MOD 6", "MOD 7", "MOD 8" };
+static constexpr int kMxNumOuts = 21;
+static constexpr const char* kMxOutNames[kMxNumOuts] = { "None", "Trk 1 Pitch", "Trk 2 Pitch", "Trk 1 Gate", "Trk 2 Gate", "Trk 1 CV", "Trk 2 CV",
+  "MOD 1", "MOD 2", "MOD 3", "MOD 4", "MOD 5", "MOD 6", "MOD 7", "MOD 8",
+  "Trk 3 Pitch", "Trk 4 Pitch", "Trk 3 Gate", "Trk 4 Gate", "Trk 3 CV", "Trk 4 CV" };
 
 static inline int s8(const A8& a) { return static_cast<int>(a.get()) - 128; }
 static inline void s8set(A8& a, int v) { a.set(std::max(-128, std::min(127, v)) + 128); }
@@ -94,7 +110,7 @@ struct MxTrack
   // pulses: 0 = Auto. swing 50..78. slideAmt 0..100. gateLen 1..99, 100 = hold. gateScale 1..100.
   // transpose signed (s8). sliderOct 1..4. pulseOvr 0 = use switches. stretch: gate stretching on/off.
   // accMode: 0 stage, 1 track. accOrder: 0 wrap, 1 pendulum. accPolar: 0 unipolar, 1 bipolar.
-  template <class F> void each(F&& f, int ver = 2)
+  template <class F> void each(F&& f, int ver = 3)
   {
     for (auto& s : st) s.each(f);
     if (ver >= 2) f(cvType);
@@ -117,7 +133,7 @@ struct MxLane
   A8 val[kMxStages], ramp[kMxStages], gate[kMxStages];
   A8 order, dir, stages, offset, clkDiv, type, mute;      // type: 0 bipolar, 1 unipolar, 2 gate toggles
   A8 dest, mask;                                          // what the lane controls (since state v2)
-  template <class F> void each(F&& f, int ver = 2)
+  template <class F> void each(F&& f, int ver = 3)
   {
     if (ver >= 2) { f(dest); f(mask); }
     for (auto& a : val) f(a);
@@ -142,12 +158,12 @@ struct MxPattern
   A8 auxSrc[3], auxAmt[3];                                     // what feeds an AUX input (0 none, 1-3 LFO, 4 envelope) and its attenuverter (s8)
   A8 outA, outB;                                               // what OUT A / OUT B give (kMxOutNames)
 
-  template <class F> void each(F&& f, int ver = 2)
+  template <class F> void each(F&& f, int ver = 3)
   {
     for (auto& a : pitch) f(a);
     for (auto& a : pulse) f(a);
     for (auto& a : gtype) f(a);
-    for (auto& t : trk) t.each(f, ver);
+    for (int i = 0; i < (ver >= 3 ? kMxTracks : 2); i++) trk[i].each(f, ver);       // states before v3 had two tracks
     for (auto& l : lane) l.each(f, ver);
     f(root); f(scaleType); f(scaleLo); f(scaleHi);
     if (ver >= 2)
@@ -164,6 +180,7 @@ struct MxPattern
   {
     for (int i = 0; i < kMxStages; i++) { pitch[i].set(i * 127 / 7 / 2); pulse[i].set(1); gtype[i].set(kMxSingle); }
     for (auto& t : trk) t.Init();
+    for (int t = 2; t < kMxTracks; t++) trk[t].mute.set(1);                          // tracks 3 and 4 start muted
     for (auto& l : lane) l.Init();
     root.set(0); scaleType.set(1); scaleLo.set(0xB5); scaleHi.set(0x0A);        // C major
     for (auto& c : ctrl) c.Init();
@@ -291,7 +308,7 @@ public:
   void SetLoop(int t, int a, int b) { mLoopA[t].store(static_cast<int8_t>(a)); mLoopB[t].store(static_cast<int8_t>(b)); }
 
   // ---- state ------------------------------------------------------------------------------------
-  static constexpr uint8_t kStateVersion = 2;
+  static constexpr uint8_t kStateVersion = 3;
   void Serialize(std::vector<uint8_t>& out) const
   {
     out.push_back(kStateVersion);
@@ -307,7 +324,7 @@ public:
   }
   bool Deserialize(const uint8_t* d, size_t n)
   {
-    if (d == nullptr || n < 1 || (d[0] != 1 && d[0] != kStateVersion)) return false;
+    if (d == nullptr || n < 1 || d[0] < 1 || d[0] > kStateVersion) return false;
     const int ver = d[0];
     const size_t pat = PatternBytes(ver);
     if (n < 1 + pat * (1 + kMxPresets) + 2 + 4 + 2) return false;
@@ -903,13 +920,15 @@ private:
     mGlideOut.store(glide);
     for (int l = 0; l < kMxLanes; l++) mLaneOut[l].store(mL[l].out);
     auto outValue = [&](int sel) -> float {
-      switch (sel)
-      {
-        case 1: case 2: { const TrkRt& c = mT[sel - 1]; return c.lastNote < 0 ? 0.f : std::max(-1.f, std::min(1.f, (c.lastNote - 60) / 36.f)); }
-        case 3: case 4: return mT[sel - 3].high ? 1.f : 0.f;
-        case 5: case 6: return mCvOut[sel - 5].load();
-        default: return (sel >= 7 && sel <= 14) ? mL[sel - 7].out : 0.f;
-      }
+      auto pitch = [&](int t) { const TrkRt& c = mT[t]; return c.lastNote < 0 ? 0.f : std::max(-1.f, std::min(1.f, (c.lastNote - 60) / 36.f)); };
+      if (sel >= 1 && sel <= 2) return pitch(sel - 1);
+      if (sel >= 3 && sel <= 4) return mT[sel - 3].high ? 1.f : 0.f;
+      if (sel >= 5 && sel <= 6) return mCvOut[sel - 5].load();
+      if (sel >= 7 && sel <= 14) return mL[sel - 7].out;
+      if (sel >= 15 && sel <= 16) return pitch(sel - 13);
+      if (sel >= 17 && sel <= 18) return mT[sel - 15].high ? 1.f : 0.f;
+      if (sel >= 19 && sel <= 20) return mCvOut[sel - 17].load();
+      return 0.f;
     };
     mOutA.store(outValue(mPat.outA.get()));
     mOutB.store(outValue(mPat.outB.get()));
@@ -917,9 +936,9 @@ private:
   }
 
   // ---- state helpers ----------------------------------------------------------------------------
-  static size_t PatternBytes(int ver = 2) { MxPattern p; size_t n = 0; p.each([&](A8&) { n++; }, ver); return n; }
+  static size_t PatternBytes(int ver = 3) { MxPattern p; size_t n = 0; p.each([&](A8&) { n++; }, ver); return n; }
   static void Put(std::vector<uint8_t>& out, const MxPattern& p) { const_cast<MxPattern&>(p).each([&](A8& a) { out.push_back(a.get()); }); }
-  static void Get(const uint8_t* d, MxPattern& p, int ver = 2) { p.Init(); size_t o = 0; p.each([&](A8& a) { a.set(d[o++]); }, ver); }
+  static void Get(const uint8_t* d, MxPattern& p, int ver = 3) { p.Init(); size_t o = 0; p.each([&](A8& a) { a.set(d[o++]); }, ver); }
 };
 
 } // namespace kr106

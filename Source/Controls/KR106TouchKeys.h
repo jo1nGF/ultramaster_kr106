@@ -154,6 +154,8 @@ public:
 
   void setSelected(int i) { mSel = i; repaint(); }
   int getSelected() const { return mSel; }
+  void setName(int i, const juce::String& n) { if (i >= 0 && i < mNames.size()) { mNames.set(i, n); repaint(); } }
+  std::function<void(int)> onRetap;              // a tap on the tab that is already selected
 
   void paint(juce::Graphics& g) override
   {
@@ -178,6 +180,7 @@ public:
     if (!getLocalBounds().contains(e.getPosition()) || mNames.isEmpty()) return;
     int i = juce::jlimit(0, mNames.size() - 1, e.x * mNames.size() / juce::jmax(1, getWidth()));
     if (i != mSel) { mSel = i; repaint(); if (mOnChange) mOnChange(i); }
+    else if (onRetap) onRetap(i);
   }
 
 private:

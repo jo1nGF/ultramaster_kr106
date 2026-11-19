@@ -79,6 +79,24 @@ int main()
     for (int i = 0; i < 60; i++) d.ProcessBlock(nullptr, o, 2, 256);
     std::printf("ratchet outside the arp: %u hits (expect 3)\n", d.mModNoteOns - before); CHECK(d.mModNoteOns - before == 3); d.AllNotesOff(); }
 
+  // ---- FX 2: every effect on at the same time, loud notes: stays finite and bounded
+  { KR106DSP<float> d(8); d.Reset(44100.0, 256);
+    const int base = 92 + 77;                                       // kFxChOn (kModBlockStart + 77)
+    for (int i = 0; i < 20; i++) d.SetParam(base + i, (i == 0 || i == 4 || i == 9 || i == 14) ? 1.0 : 0.9);
+    std::vector<float> a(256), b(256); float* o[2] = { a.data(), b.data() };
+    float peak = 0; bool ok = true;
+    for (int blk = 0; blk < 400; blk++)
+    { if (blk % 20 == 0) { d.NoteOn(48 + (blk / 20) % 12, 127); d.NoteOn(60, 127); d.NoteOn(67, 127); } if (blk % 20 == 10) d.AllNotesOff();
+      d.ProcessBlock(nullptr, o, 2, 256);
+      for (int i = 0; i < 256; i++) { peak = std::max(peak, std::fabs(a[i])); if (!std::isfinite(a[i]) || !std::isfinite(b[i])) ok = false; } }
+    std::printf("fx2 on: peak %.2f\n", peak); CHECK(ok && peak < 4.f); }
+  // ---- Metropolix states saved with two tracks (v2) still load, and the new tracks start muted
+  { MetropolixSeq s; std::vector<uint8_t> blob; blob.push_back(2);
+    auto put = [&](MxPattern& q) { q.each([&](A8& x) { blob.push_back(x.get()); }, 2); };
+    MxPattern p; p.Init(); p.pitch[1].set(55); put(p); for (int i = 0; i < kMxPresets; i++) { MxPattern q; q.Init(); put(q); }
+    blob.push_back(1); blob.push_back(3); float bpm = 99.f; const uint8_t* bp = reinterpret_cast<const uint8_t*>(&bpm); for (int i = 0; i < 4; i++) blob.push_back(bp[i]); blob.push_back(0); blob.push_back(0);
+    CHECK(s.Deserialize(blob.data(), blob.size())); CHECK(s.mPat.pitch[1].get() == 55 && s.mBpm.load() == 99.f && s.mPat.trk[3].mute.get() == 1); }
+
   // ---- everything at once, randomly
   { std::mt19937 rng(7); auto I = [&](int n) { return (int)(rng() % n); };
     KR106DSP<float> d(6); d.Reset(44100.0, 256); d.mFreeStrum = true; d.mSeq.mRun.store(true); d.mMetro.mRun.store(true);

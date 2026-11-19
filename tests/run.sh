@@ -10,3 +10,4 @@ cp "$HERE/stub/PluginProcessor.h" "$T/Source/"; cp "$HERE/stub/juce_gui_basics/j
 cd "$T"
 echo "== panels (stand-in JUCE, sanitizers)"; g++ -std=c++17 -O1 -g -Wall -Wextra -fsanitize=address,undefined -I. -I"$HERE" "$HERE/panels_test.cpp" -o panels && ./panels
 echo "== engines and DSP (sanitizers)"; g++ -std=c++17 -O1 -g -Wall -fsanitize=address,undefined -I"$ROOT" "$HERE/dsp_test.cpp" -o dsp && ./dsp
+echo "== effects of the FX 2 page (sanitizers)"; g++ -std=c++17 -O1 -g -Wall -fsanitize=address,undefined -I"$ROOT" "$HERE/fx_test.cpp" -o fx && ./fx
