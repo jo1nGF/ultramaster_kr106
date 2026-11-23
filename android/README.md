@@ -366,10 +366,15 @@ não gravam. Use a matriz de modulação para levar qualquer fonte ao resto do s
   formatos. (Para a gravação não ser interrompida pelo Android por muito tempo em segundo plano, o app precisa de
   um serviço em primeiro plano, que é uma opção do Projucer.)
 - **MIDI learn por toque:** o botão **CC** (barra de cima, abaixo do Keys) liga o modo de mapear: os controles
-  aparecem contornados em verde e **um toque** num controle já o seleciona; depois mova o controle do teclado. As
-  abas continuam funcionando. Toque em CC de novo para sair. O segurar continua funcionando.
-- **Teclado:** o botão **Hold** está no cabeçalho do teclado. Deslizar **de baixo para cima** na borda inferior da
-  tela (numa área vazia) abre o teclado.
+  aparecem contornados em verde e **um toque** num controle já o seleciona; depois mova o controle do teclado. Uma
+  faixa no rodapé diz o que fazer (e tem o botão Exit). Quando o CC é aprendido, o modo **desliga sozinho**, e os toques
+  voltam a ajustar os parâmetros. As abas continuam funcionando durante o modo. **O segurar o dedo num controle não
+  inicia mais o MIDI learn** (ele atrapalhava os ajustes).
+- **Teclado:** o botão **Hold** está no cabeçalho do teclado. O teclado agora é uma gaveta **arrastável e
+  "docável"**: arraste o cabeçalho (a barrinha no topo) para cima e ele sai do dock e passa a flutuar; arraste para
+  cima e para baixo para escolher a altura; solte perto da base e ele volta para o dock; puxe bem para baixo para
+  fechar. O botão **Dock** também encaixa e solta. O app lembra onde você deixou. Deslizar **de baixo para cima**
+  na borda inferior da tela (numa área vazia) abre o teclado.
 - **Zoom no Seq:** pinça e arraste nas partes vazias dos painéis dos sequenciadores (sliders e botões continuam
   com seus toques); toque duplo numa área vazia alterna o zoom.
 - **Metropolix:** os faders agora **deslizam**: arraste o dedo para o lado para pintar os faders vizinhos da mesma
@@ -396,3 +401,13 @@ não gravam. Use a matriz de modulação para levar qualquer fonte ao resto do s
 Testes: `tests/run.sh` compila e roda, com detectores de erros de memória, os motores dos sequenciadores, o DSP
 (strum/ratchet sem o arp, quantizador com Hold, FX 2), os quatro efeitos e os painéis dos sequenciadores (com um
 JUCE de mentira que só serve para exercitá-los).
+
+## Novidades (versão 12)
+
+- A tela do MIDI learn por toque ficou limpa: os contornos não se sobrepõem mais e o texto saiu de cima dos
+  títulos (a mensagem agora aparece na faixa do rodapé).
+- No Metropolix, o título "PULSE COUNT" não cobre mais os números dos stages, e as três faixas de sliders ganharam
+  mais espaço.
+- O teclado é arrastável e tem dock (veja "Teclado" acima).
+- As páginas FX 2 (toque de novo no tab FX) e as trilhas 3 e 4 do Metropolix estão desde a versão 11. Se elas não
+  aparecem, o app instalado ainda é a versão 10.

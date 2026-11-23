@@ -44,10 +44,18 @@ public:
       if (mState != Waiting || mParamIdx != lp) { mParamIdx = lp; setState(Waiting); }
     }
     else if (mState == Waiting)
-      setState(Hidden);
+      setState(mArmed ? Armed : Hidden);
     else if ((mState == Assigned || mState == Removed || mState == Defaulted) && juce::Time::getMillisecondCounter() > mDeadline)
+      setState(mArmed ? Armed : Hidden);
+    else if (mArmed && mState == Hidden)
+      setState(Armed);
+    else if (!mArmed && mState == Armed)
       setState(Hidden);
   }
+
+  // The CC button (tap mode) is on: say what to do, with a way out
+  void setArmed(bool armed) { mArmed = armed; tick(); }
+  std::function<void()> onExit;
 
   // A CC was captured for the control that was waiting
   void showAssigned(int cc)
@@ -73,7 +81,7 @@ public:
   }
 
 private:
-  enum State { Hidden, Waiting, Assigned, Removed, Defaulted };
+  enum State { Hidden, Waiting, Assigned, Removed, Defaulted, Armed };
 
   juce::String paramName() const
   {
@@ -93,6 +101,8 @@ private:
                + (user >= 0 ? "   (now CC " + juce::String(user) + ")"
                   : off     ? juce::String("   (no CC)")
                   : fact >= 0 ? "   (default CC " + juce::String(fact) + ")" : juce::String("   (no CC)"));
+      case Armed:
+        return "MIDI learn: tap a control to map it, then move a control on your keyboard";
       case Assigned:
         return paramName() + " = CC " + juce::String(mAssignedCC);
       case Removed:
@@ -103,7 +113,12 @@ private:
     }
   }
 
-  void refreshButtons() { mClose.setText(mState == Waiting ? "Cancel" : "OK"); }
+  void refreshButtons()
+  {
+    mRemove.setVisible(mState != Armed);
+    mDefault.setVisible(mState != Armed);
+    mClose.setText(mState == Waiting ? "Cancel" : mState == Armed ? "Exit" : "OK");
+  }
 
   void setState(State s)
   {
@@ -130,14 +145,16 @@ private:
 
   void onClose()
   {
+    if (mState == Armed) { if (onExit) onExit(); return; }                 // the CC mode ends
     if (mState == Waiting) mProc.cancelMidiLearn();
-    setState(Hidden);
+    setState(mArmed ? Armed : Hidden);
   }
 
   KR106AudioProcessor& mProc;
   KR106TouchTextButton mRemove, mDefault, mClose;
   State mState = Hidden;
   int mParamIdx = -1, mAssignedCC = -1;
+  bool mArmed = false;
   juce::uint32 mDeadline = 0;
 };
 
@@ -164,9 +181,6 @@ public:
         g.setColour(juce::Colour(0xff00dc00).withAlpha(0.85f));
         g.drawRoundedRectangle(r.toFloat().expanded(3.f), 4.f, 1.5f);
       }
-    g.setColour(juce::Colour(0xff00dc00));
-    g.setFont(juce::FontOptions(11.f, juce::Font::bold));
-    g.drawText("MIDI LEARN: tap a control, then move a control on your keyboard", 140, 76, 560, 14, juce::Justification::centred);
   }
 
   void mouseUp(const juce::MouseEvent& e) override { if (onTap) onTap(e.getPosition()); }

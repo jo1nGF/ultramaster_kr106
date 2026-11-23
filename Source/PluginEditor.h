@@ -65,6 +65,9 @@ private:
     KR106LearnTapOverlay* mTapOverlay = nullptr;   // owned by mControls: MIDI learn by tapping a control
     KR106TouchTextButton* mCcBtn = nullptr;
     bool mTapLearn = false;
+    void setTapLearn(bool on);                      // MIDI learn by tapping: on / off
+    int mKeysTop = 226;                             // where the keyboard sheet was left (and whether it is docked)
+    bool mKeysDocked = true;
     // swipe up from the bottom edge opens the keyboard
     struct SwipeUp : juce::MouseListener
     {

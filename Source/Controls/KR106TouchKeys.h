@@ -606,10 +606,23 @@ private:
 
 // ---------------------------------------------------------------------------
 // Bottom sheet: title row (octave -/+, bender, close) + keys.
+// The keyboard sheet: a drawer that sits docked at the bottom. Drag its header (or the handle) up to undock it and move
+// it up and down anywhere; let go near the bottom and it docks again; pull it far down to close it. The Dock button
+// docks / undocks it too. Where it was left is remembered (see onMoved / setPlacement).
 class KR106TouchKeysSheet : public juce::Component, private juce::Timer
 {
 public:
+  static constexpr int kDockedTop = 226, kMinTop = 80;
   std::function<void()> onClose;
+  std::function<void(int top, bool docked)> onMoved;
+
+  void setPlacement(int top, bool docked)
+  {
+    mDocked = docked;
+    setTopLeftPosition(0, docked ? kDockedTop : juce::jlimit(kMinTop, kDockedTop, top));
+    if (mDock) mDock->setActive(mDocked);
+  }
+  bool isDocked() const { return mDocked; }
 
   KR106TouchKeysSheet(KR106AudioProcessor* p, juce::Component* benderOwnedByUs)
     : mKeys(p), mBender(benderOwnedByUs)
@@ -621,6 +634,14 @@ public:
     addAndMakeVisible(*mDown); addAndMakeVisible(*mUp); addAndMakeVisible(*mClose);
     mHold = std::make_unique<KR106TouchToggle>("Hold", p != nullptr ? p->getParam(kHold) : nullptr);     // latches the notes (the Hold button of the synth)
     addAndMakeVisible(*mHold);
+    mDock = std::make_unique<KR106TouchTextButton>("Dock", [this] {
+      mDocked = !mDocked;
+      setTopLeftPosition(0, mDocked ? kDockedTop : kDockedTop - 110);        // undocking lifts it a little so it can be dragged
+      mDock->setActive(mDocked);
+      notifyMoved();
+    });
+    mDock->setActive(true);
+    addAndMakeVisible(*mDock);
     if (mBender) addAndMakeVisible(mBender.get());
     updateRange();
     startTimerHz(8);
@@ -634,8 +655,11 @@ public:
     g.setColour(juce::Colours::white);
     g.setFont(juce::FontOptions(13.f));
     g.drawText(mRange, 72, 4, 110, 30, juce::Justification::centred);
-    g.setColour(juce::Colour(0xff9a9a9a));
-    g.drawText("Test keys", getWidth() / 2 - 60, 4, 120, 30, juce::Justification::centred);
+    g.setColour(juce::Colour(0xff6a6a6a));                                   // the handle: drag it up and down
+    g.fillRoundedRectangle(static_cast<float>(getWidth()) * 0.5f - 24.f, 8.f, 48.f, 5.f, 2.5f);
+    g.setColour(juce::Colour(0xff8a8a8a));
+    g.setFont(juce::FontOptions(10.f));
+    g.drawText(mDocked ? "docked" : "floating", getWidth() / 2 - 60, 16, 120, 14, juce::Justification::centred);
   }
 
   void resized() override
@@ -644,6 +668,7 @@ public:
     mDown->setBounds(pad, 5, 60, 28);
     mUp->setBounds(pad + 178, 5, 60, 28);
     mHold->setBounds(pad + 250, 5, 84, 28);
+    mDock->setBounds(pad + 342, 5, 84, 28);
     mClose->setBounds(getWidth() - pad - 70, 5, 70, 28);
     if (mBender)   // native 60x12, drawn 2.2x (132x26); transform includes the position
     {
@@ -653,16 +678,42 @@ public:
     mKeys.setBounds(pad, hdr + 4, getWidth() - 2 * pad, getHeight() - hdr - 4 - pad);
   }
 
-  // Swipe down on the header closes the sheet.
-  void mouseDown(const juce::MouseEvent& e) override { mSwipeStart = e.position.y; }
-  void mouseUp(const juce::MouseEvent& e) override
+  // Drag the header: up undocks and moves the keyboard, down brings it back; far down closes it.
+  void mouseDown(const juce::MouseEvent& e) override
   {
-    if (mSwipeStart >= 0 && e.position.y - mSwipeStart > 40.f && onClose) onClose();
-    mSwipeStart = -1.f;
+    mDragMoved = false;
+    if (auto* par = getParentComponent()) mDownY = e.getEventRelativeTo(par).position.y;
+    mTopAtDown = getY();
+  }
+  void mouseDrag(const juce::MouseEvent& e) override
+  {
+    auto* par = getParentComponent();
+    if (par == nullptr) return;
+    const float dy = e.getEventRelativeTo(par).position.y - mDownY;
+    if (std::abs(dy) > 6.f) mDragMoved = true;
+    if (!mDragMoved) return;
+    if (mDocked && dy < -14.f) { mDocked = false; if (mDock) mDock->setActive(false); }
+    int top;
+    if (mDocked) top = kDockedTop + std::max(0, juce::roundToInt(dy));                 // docked: it can only be pulled down
+    else top = juce::jlimit(kMinTop, kDockedTop + 80, mTopAtDown + juce::roundToInt(dy));
+    setTopLeftPosition(0, top);
+    repaint();
+  }
+  void mouseUp(const juce::MouseEvent&) override
+  {
+    if (!mDragMoved) return;
+    mDragMoved = false;
+    if (getY() > kDockedTop + 40) { if (onClose) onClose(); return; }                    // pulled far down: close (the owner may delete us)
+    if (!mDocked && getY() >= kDockedTop - 24) mDocked = true;                           // let go near the bottom: dock
+    if (mDocked) setTopLeftPosition(0, kDockedTop);
+    if (mDock) mDock->setActive(mDocked);
+    repaint();
+    notifyMoved();
   }
 
 private:
   void timerCallback() override { if (mHold) mHold->refresh(); }
+  void notifyMoved() { if (onMoved) onMoved(getY(), mDocked); repaint(); }
   void updateRange()
   {
     int s = mKeys.getStartNote();
@@ -671,8 +722,10 @@ private:
   }
   KR106TouchKeys mKeys;
   std::unique_ptr<juce::Component> mBender;
-  std::unique_ptr<KR106TouchTextButton> mDown, mUp, mClose;
+  std::unique_ptr<KR106TouchTextButton> mDown, mUp, mClose, mDock;
   std::unique_ptr<KR106TouchToggle> mHold;
   juce::String mRange;
-  float mSwipeStart = -1.f;
+  bool mDocked = true, mDragMoved = false;
+  float mDownY = 0.f;
+  int mTopAtDown = kDockedTop;
 };

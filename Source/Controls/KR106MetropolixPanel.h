@@ -176,7 +176,7 @@ public:
 private:
   // ---- geometry (panel coordinates) ----
   static constexpr int kSlX0 = 448, kColP = 52, kColX0 = 474;
-  static constexpr int kPitchY0 = 22, kPitchY1 = 122, kPulseY0 = 158, kPulseY1 = 212, kGateY0 = 242, kGateY1 = 282;
+  static constexpr int kPitchY0 = 28, kPitchY1 = 108, kPulseY0 = 164, kPulseY1 = 206, kGateY0 = 246, kGateY1 = 284;
   static constexpr int kStageCy = 336, kStageR = 12;
   enum Id {
     kTrk1 = 1, kTrk2, kMod, kTrk3, kTrk4, kRun, kLoopy, kReset, kSetup, kBpm, kScale, kOrder, kLen, kDiv, kSwing, kSlide, kGateLen,
@@ -364,10 +364,10 @@ private:
     g.setFont(juce::FontOptions(10.f, juce::Font::bold));
     g.setColour(juce::Colour(0xffe8e8ea));
     g.drawText(mMod ? "MOD LANE " + juce::String(mLane + 1) : juce::String("PITCH"), kSlX0, 3, 870 - kSlX0, 13, juce::Justification::centred);
-    g.drawText(mMod ? "RAMP" : "PULSE COUNT", kSlX0, 138, 870 - kSlX0, 13, juce::Justification::centred);
-    g.drawText(mMod ? "GATE" : "GATE TYPE", kSlX0, 224, 870 - kSlX0, 13, juce::Justification::centred);
+    g.drawText(mMod ? "RAMP" : "PULSE COUNT", kSlX0, 135, 870 - kSlX0, 13, juce::Justification::centred);
+    g.drawText(mMod ? "GATE" : "GATE TYPE", kSlX0, 219, 870 - kSlX0, 13, juce::Justification::centred);
     g.setColour(juce::Colour(0xff6a6b70));
-    g.fillRect(kSlX0, 16, 870 - kSlX0 - 6, 1); g.fillRect(kSlX0, 151, 870 - kSlX0 - 6, 1); g.fillRect(kSlX0, 237, 870 - kSlX0 - 6, 1);
+    g.fillRect(kSlX0, 16, 870 - kSlX0 - 6, 1); g.fillRect(kSlX0, 149, 870 - kSlX0 - 6, 1); g.fillRect(kSlX0, 233, 870 - kSlX0 - 6, 1);
 
     for (int i = 0; i < kMxStages; i++)
     {

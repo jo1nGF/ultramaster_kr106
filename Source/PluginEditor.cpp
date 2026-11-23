@@ -616,7 +616,7 @@ KR106Editor::KR106Editor(KR106AudioProcessor& p)
     mTapOverlay->outlines = [this]() {
         std::vector<juce::Rectangle<int>> v;
         for (auto& lc : mLearnableControls)
-            if (lc.ctrl != nullptr && lc.ctrl->isShowing()) v.push_back(lc.ctrl->getBoundsInParent());
+            if (lc.ctrl != nullptr && lc.ctrl->isShowing()) v.push_back(lc.ctrl->getBoundsInParent().reduced(6, 3));       // inset: neighbours never overlap
         return v;
     };
     mTapOverlay->passThrough = [this](juce::Point<int> pt) {
@@ -634,16 +634,11 @@ KR106Editor::KR106Editor(KR106AudioProcessor& p)
         }
         if (best >= 0) { mProcessor.startMidiLearn(best); mTooltip.hide(); if (mLearnBar) mLearnBar->tick(); }
     };
-    mCcBtn = add(new KR106TouchTextButton("CC", [this]() {
-        mTapLearn = !mTapLearn;
-        mCcBtn->setActive(mTapLearn);
-        mTapOverlay->setVisible(mTapLearn);
-        if (mTapLearn) { mTapOverlay->toFront(false); if (mLearnBar) mLearnBar->toFront(false); }
-        else mProcessor.cancelMidiLearn();
-    }), 798, 52, 30, 18);
+    mCcBtn = add(new KR106TouchTextButton("CC", [this]() { setTapLearn(!mTapLearn); }), 798, 52, 30, 18);
 
     // MIDI learn bar: its own strip below the tiles, so the message never covers a control or a value
     mLearnBar = new KR106LearnBar(p);
+    mLearnBar->onExit = [this]() { setTapLearn(false); };
     add(mLearnBar, 8, kBaseHeight - 32, 854, 28);
     mLearnBar->setVisible(false);                      // appears only while a control is being learned
 
@@ -660,7 +655,7 @@ KR106Editor::KR106Editor(KR106AudioProcessor& p)
             }
         return false;
     };
-    mContent.addMouseListener(&mLongPress, true);
+    // (the long press no longer starts a MIDI learn: it got in the way of adjusting parameters. Use the CC button.)
 
     // Zoom / pan: drag on any empty area, pinch with two fingers on empty areas,
     // double-tap empty area to toggle 100% <-> 200%.
@@ -1594,6 +1589,27 @@ void KR106Editor::showArpMaskMenu(juce::Rectangle<int> anchor)
     mChoiceMenu->showAt({ menuX, menuY, menuW, menuH });
 }
 
+// MIDI learn by tapping: the CC button arms it, a tap on a control selects it, and the mode ends by itself when the CC is learned
+void KR106Editor::setTapLearn(bool on)
+{
+#if KR106_TOUCH
+    if (mTapLearn == on) return;
+    mTapLearn = on;
+    if (mCcBtn) mCcBtn->setActive(on);
+    if (mTapOverlay) mTapOverlay->setVisible(on);
+    if (on)
+    {
+        mTooltip.hide();
+        if (mTapOverlay) mTapOverlay->toFront(false);
+        if (mLearnBar) mLearnBar->toFront(false);
+    }
+    else if (mProcessor.mMidiLearnParam.load(std::memory_order_relaxed) >= 0) mProcessor.cancelMidiLearn();
+    if (mLearnBar) mLearnBar->setArmed(on);
+#else
+    (void) on;
+#endif
+}
+
 void KR106Editor::showKeysSheet()
 {
 #if KR106_TOUCH
@@ -1602,9 +1618,15 @@ void KR106Editor::showKeysSheet()
                                                 BinaryData::kr106_bender_gradient2x_pngSize);
     auto* bender = new KR106Bender(mProcessor.getParam(kBender), grad, &mProcessor);
     mKeysSheet = std::make_unique<KR106TouchKeysSheet>(&mProcessor, bender);
-    mKeysSheet->onClose = [this]() { mKeysSheet.reset(); };
+    mKeysSheet->onClose = [this]() {
+        // the sheet can ask to be closed from its own mouse handler: delete it a moment later
+        juce::Component::SafePointer<juce::Component> self(this);
+        juce::MessageManager::callAsync([this, self]() { if (self != nullptr) mKeysSheet.reset(); });
+    };
+    mKeysSheet->onMoved = [this](int top, bool docked) { mKeysTop = top; mKeysDocked = docked; };      // remembered for the next time
     mContent.addAndMakeVisible(mKeysSheet.get());
-    mKeysSheet->setBounds(0, 226, kBaseWidth, kBaseHeight - 226);
+    mKeysSheet->setBounds(0, KR106TouchKeysSheet::kDockedTop, kBaseWidth, kBaseHeight - KR106TouchKeysSheet::kDockedTop);
+    mKeysSheet->setPlacement(mKeysTop, mKeysDocked);
     mKeysSheet->toFront(false);
 #endif
 }
@@ -1709,6 +1731,7 @@ void KR106Editor::timerCallback()
             mTooltip.update();
             mProcessor.saveGlobalSettings();
 #if KR106_TOUCH
+            if (mTapLearn) setTapLearn(false);               // done: touches adjust the parameters again
             if (mLearnBar) mLearnBar->showAssigned(learnedCC);
 #endif
         }
